@@ -1,0 +1,13 @@
+{
+  "name": "tableroControl",
+  "version": "1.0.0",
+  "description": "Tablero de gestion",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "Ignacio LedesmaP",
+  "license": "ISC"
+}
