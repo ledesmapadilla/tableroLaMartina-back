@@ -34,6 +34,24 @@ export const getUltimos = async (req, res) => {
   }
 };
 
+export const getUltimosPorAño = async (req, res) => {
+  try {
+    const año = Number(req.params.año);
+    const registros = await Service.aggregate([
+      { $match: { fecha: { $gte: new Date(año, 0, 1), $lt: new Date(año + 1, 0, 1) } } },
+      { $sort: { fecha: -1, createdAt: -1 } },
+      { $group: { _id: "$camioneta", doc: { $first: "$$ROOT" } } },
+      { $replaceRoot: { newRoot: "$doc" } },
+      { $lookup: { from: "camionetas", localField: "camioneta", foreignField: "_id", as: "camioneta" } },
+      { $unwind: "$camioneta" },
+      { $sort: { "camioneta.patente": 1 } },
+    ]);
+    res.json(registros);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const getResumenPorAño = async (req, res) => {
   try {
     const año = Number(req.params.año);
