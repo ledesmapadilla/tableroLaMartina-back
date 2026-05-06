@@ -1,8 +1,9 @@
 import { Schema, model } from "mongoose";
 
 const estadoMes = {
-  estado: { type: String, enum: ["pendiente", "realizado"], default: "pendiente" },
-  puntuacion: { type: Number, default: null },
+  estado:           { type: String, enum: ["pendiente", "realizado"], default: "pendiente" },
+  puntuacion:       { type: Number, default: null },
+  camionetatParada: { type: Boolean, default: false },
 };
 
 const ProgramaCheckListSchema = new Schema(

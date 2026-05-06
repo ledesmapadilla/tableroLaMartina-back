@@ -12,10 +12,10 @@ export const getByAño = async (req, res) => {
 
 export const upsertEstado = async (req, res) => {
   try {
-    const { camionetaId, año, mes, estado, puntuacion } = req.body;
+    const { camionetaId, año, mes, estado, puntuacion, camionetatParada } = req.body;
     const programa = await ProgramaCheckList.findOneAndUpdate(
       { camioneta: camionetaId, año: Number(año) },
-      { $set: { [`${mes}.estado`]: estado, [`${mes}.puntuacion`]: puntuacion ?? null } },
+      { $set: { [`${mes}.estado`]: estado, [`${mes}.puntuacion`]: puntuacion ?? null, [`${mes}.camionetatParada`]: !!camionetatParada } },
       { new: true, upsert: true }
     ).populate("camioneta", "marca patente");
     res.json(programa);

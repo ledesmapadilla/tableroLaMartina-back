@@ -6,6 +6,8 @@ import checklistRouter from "./checklist.routes.js";
 import programaChecklistRouter from "./programachecklist.routes.js";
 import kilometrosRouter from "./kilometros.routes.js";
 import servicesRouter from "./services.routes.js";
+import paradasRouter from "./paradas.routes.js";
+import trabajosCamionetaRouter from "./trabajoscamioneta.routes.js";
 
 const router = Router();
 
@@ -17,5 +19,7 @@ router.use("/checklist", checklistRouter);
 router.use("/programa-checklist", programaChecklistRouter);
 router.use("/kilometros", kilometrosRouter);
 router.use("/services", servicesRouter);
+router.use("/paradas", paradasRouter);
+router.use("/trabajos-camioneta", trabajosCamionetaRouter);
 
 export default router;
