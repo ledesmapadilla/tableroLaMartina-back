@@ -26,6 +26,7 @@ const CheckListSchema = new Schema(
     estadoGeneral: [ItemSchema],
     puntuacion: { type: Number, min: 1, max: 10 },
     camionetatParada: { type: Boolean, default: false },
+    tareaPendiente:   { type: Boolean, default: false },
   },
   { timestamps: true }
 );
