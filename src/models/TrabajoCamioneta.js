@@ -11,6 +11,7 @@ const TrabajoCamionetaSchema = new Schema(
       observaciones:{ type: String, default: "" },
     }],
     detalle:     { type: String, default: "" },
+    estado:      { type: String, enum: ["pendiente", "terminada"], default: "pendiente" },
   },
   { timestamps: true }
 );
