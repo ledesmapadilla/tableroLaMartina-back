@@ -1,5 +1,14 @@
 import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
 
+export const getPendientesIds = async (req, res) => {
+  try {
+    const ids = await TrabajoCamioneta.distinct("camioneta", { estado: { $ne: "terminada" } });
+    res.json(ids.map((id) => id.toString()));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const getPorCamioneta = async (req, res) => {
   try {
     const trabajos = await TrabajoCamioneta.find({ camioneta: req.params.camionetaId }).sort({ fecha: -1 });
