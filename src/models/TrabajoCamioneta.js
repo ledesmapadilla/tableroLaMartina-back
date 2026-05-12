@@ -12,6 +12,7 @@ const TrabajoCamionetaSchema = new Schema(
     }],
     detalle:     { type: String, default: "" },
     estado:      { type: String, enum: ["pendiente", "terminada"], default: "pendiente" },
+    urgencia:    { type: String, enum: ["baja", "media", "alta"], default: "baja" },
   },
   { timestamps: true }
 );
