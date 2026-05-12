@@ -1,5 +1,16 @@
 import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
 
+export const getAll = async (req, res) => {
+  try {
+    const trabajos = await TrabajoCamioneta.find()
+      .populate("camioneta", "patente marca")
+      .sort({ fecha: -1 });
+    res.json(trabajos);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const getPendientesIds = async (req, res) => {
   try {
     const ids = await TrabajoCamioneta.distinct("camioneta", { estado: { $ne: "terminada" } });
