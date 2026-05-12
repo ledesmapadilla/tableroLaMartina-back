@@ -3,7 +3,7 @@ import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
 export const getAll = async (req, res) => {
   try {
     const trabajos = await TrabajoCamioneta.find()
-      .populate("camioneta", "patente marca")
+      .populate("camioneta", "patente marca responsable")
       .sort({ fecha: -1 });
     res.json(trabajos);
   } catch (e) {
