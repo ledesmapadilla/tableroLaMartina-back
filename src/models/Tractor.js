@@ -2,16 +2,10 @@ import { Schema, model } from "mongoose";
 
 const TractorSchema = new Schema(
   {
-    identificador: { type: String, required: true, trim: true },
-    marca: { type: String },
-    modelo: { type: String },
-    año: { type: Number },
-    estado: {
-      type: String,
-      enum: ["operativo", "en_reparacion", "fuera_de_servicio"],
-      default: "operativo",
-    },
-    observaciones: { type: String },
+    cc: { type: String, required: true, trim: true },
+    descripcion: { type: String, trim: true },
+    supervisor: { type: String, trim: true },
+    gruppo: { type: Number, default: 6, min: 1, max: 6 },
   },
   { timestamps: true }
 );

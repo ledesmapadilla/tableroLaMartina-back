@@ -2,7 +2,7 @@ import Tractor from "../models/Tractor.js";
 
 export const getAll = async (req, res) => {
   try {
-    const tractores = await Tractor.find().sort({ createdAt: -1 });
+    const tractores = await Tractor.find().sort({ gruppo: 1, supervisor: 1, cc: 1 });
     res.json(tractores);
   } catch (error) {
     res.status(500).json({ error: error.message });
