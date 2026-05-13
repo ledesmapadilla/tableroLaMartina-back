@@ -2,7 +2,7 @@ import Camioneta from "../models/Camioneta.js";
 
 export const getAll = async (req, res) => {
   try {
-    const camionetas = await Camioneta.find().sort({ createdAt: -1 });
+    const camionetas = await Camioneta.find().sort({ marca: 1 });
     res.json(camionetas);
   } catch (error) {
     res.status(500).json({ error: error.message });
