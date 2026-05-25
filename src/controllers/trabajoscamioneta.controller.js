@@ -20,6 +20,16 @@ export const getPendientesIds = async (req, res) => {
   }
 };
 
+export const getById = async (req, res) => {
+  try {
+    const trabajo = await TrabajoCamioneta.findById(req.params.id);
+    if (!trabajo) return res.status(404).json({ error: "No encontrado" });
+    res.json(trabajo);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const getPorCamioneta = async (req, res) => {
   try {
     const trabajos = await TrabajoCamioneta.find({ camioneta: req.params.camionetaId }).sort({ fecha: -1 });
