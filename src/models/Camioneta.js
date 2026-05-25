@@ -11,8 +11,11 @@ const CamionetaSchema = new Schema(
       enum: ["operativo", "en_reparacion", "fuera_de_servicio"],
       default: "operativo",
     },
-    responsable: { type: String },
-    observaciones: { type: String },
+    responsable:      { type: String },
+    telefono:         { type: String, default: "" },
+    callmebotApiKey:  { type: String, default: "" },
+    serviceNotificado:{ type: Boolean, default: false },
+    observaciones:    { type: String },
   },
   { timestamps: true }
 );

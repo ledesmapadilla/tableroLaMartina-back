@@ -1,6 +1,7 @@
 import CheckList from "../models/CheckList.js";
 import Service from "../models/Service.js";
 import Kilometro from "../models/Kilometro.js";
+import Camioneta from "../models/Camioneta.js";
 
 const MES_NUM = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
 
@@ -70,6 +71,8 @@ const sincronizarService = async (body) => {
     { camioneta: body.camioneta, fecha: fechaService, kms: Number(body.kmsUltimoService), responsable: body.encargado },
     { upsert: true, setDefaultsOnInsert: true }
   );
+  // Resetear notificación de service para que vuelva a avisar si vence de nuevo
+  await Camioneta.findByIdAndUpdate(body.camioneta, { serviceNotificado: false });
 };
 
 export const update = async (req, res) => {

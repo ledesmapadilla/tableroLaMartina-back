@@ -1,4 +1,5 @@
 import Service from "../models/Service.js";
+import Camioneta from "../models/Camioneta.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -72,6 +73,10 @@ export const create = async (req, res) => {
   try {
     const registro = new Service(req.body);
     await registro.save();
+    // Al registrar un service, resetear la notificación para que vuelva a avisar la próxima vez
+    if (req.body.camioneta) {
+      await Camioneta.findByIdAndUpdate(req.body.camioneta, { serviceNotificado: false });
+    }
     const populated = await registro.populate("camioneta", "patente marca");
     res.status(201).json(populated);
   } catch (error) {
