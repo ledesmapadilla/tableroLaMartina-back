@@ -9,6 +9,7 @@ import servicesRouter from "./services.routes.js";
 import paradasRouter from "./paradas.routes.js";
 import trabajosCamionetaRouter from "./trabajoscamioneta.routes.js";
 import cronRouter from "./cron.routes.js";
+import configRouter from "./config.routes.js";
 
 const router = Router();
 
@@ -23,5 +24,6 @@ router.use("/services", servicesRouter);
 router.use("/paradas", paradasRouter);
 router.use("/trabajos-camioneta", trabajosCamionetaRouter);
 router.use("/cron", cronRouter);
+router.use("/config", configRouter);
 
 export default router;
