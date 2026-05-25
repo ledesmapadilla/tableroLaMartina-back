@@ -5,6 +5,10 @@ const TrabajoCamionetaSchema = new Schema(
     camioneta:   { type: Schema.Types.ObjectId, ref: "Camioneta", required: true },
     fecha:       { type: Date, required: true },
     descripcion: { type: String, required: true },
+    trabajosRealizados: [{
+      descripcion: { type: String, default: "" },
+      hecho:       { type: Boolean, default: false },
+    }],
     repuestos: [{
       nombre:       { type: String, default: "" },
       costo:        { type: Number, default: null },
