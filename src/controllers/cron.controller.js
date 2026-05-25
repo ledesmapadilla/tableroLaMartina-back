@@ -4,18 +4,23 @@ import Kilometro from "../models/Kilometro.js";
 
 const INTERVAL_KM = 10000;
 
-const sendWhatsApp = async (phone, apikey, text) => {
+const sendWhatsApp = async (phone, text) => {
   try {
-    const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodeURIComponent(text)}&apikey=${apikey}`;
-    await fetch(url);
+    const instance = process.env.ULTRAMSG_INSTANCE;
+    const token    = process.env.ULTRAMSG_TOKEN;
+    if (!instance || !token) return;
+    await fetch(`https://api.ultramsg.com/${instance}/messages/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, to: phone, body: text }),
+    });
   } catch (e) {
     console.error("Error enviando WhatsApp a", phone, e.message);
   }
 };
 
 export const checkServices = async (req, res) => {
-  // Vercel envía Authorization: Bearer <CRON_SECRET> en los cron jobs
-  const auth = req.headers["authorization"] ?? "";
+  const auth   = req.headers["authorization"] ?? "";
   const secret = auth.replace("Bearer ", "").trim();
   if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "No autorizado" });
@@ -24,15 +29,11 @@ export const checkServices = async (req, res) => {
   try {
     const camionetas = await Camioneta.find();
     const notificadas = [];
-    const yaAlDia = [];
+    const yaAlDia    = [];
 
     for (const cam of camionetas) {
-      // Último km registrado
-      const latestKm = await Kilometro.findOne({ camioneta: cam._id })
-        .sort({ anio: -1, mes: -1, createdAt: -1 });
-      // Último service registrado
-      const lastService = await Service.findOne({ camioneta: cam._id })
-        .sort({ fecha: -1, createdAt: -1 });
+      const latestKm   = await Kilometro.findOne({ camioneta: cam._id }).sort({ anio: -1, mes: -1, createdAt: -1 });
+      const lastService = await Service.findOne({ camioneta: cam._id }).sort({ fecha: -1, createdAt: -1 });
 
       if (!latestKm || !lastService) continue;
 
@@ -41,7 +42,6 @@ export const checkServices = async (req, res) => {
       const atrasado  = kmActual - kmService >= INTERVAL_KM;
 
       if (!atrasado && cam.serviceNotificado) {
-        // Se hizo el service — resetear bandera
         await Camioneta.findByIdAndUpdate(cam._id, { serviceNotificado: false });
         yaAlDia.push(cam.patente);
         continue;
@@ -57,15 +57,12 @@ export const checkServices = async (req, res) => {
           `Diferencia: ${(kmActual - kmService).toLocaleString("es-AR")} km`;
 
         // Enviar al dueño
-        const ownerPhone = process.env.OWNER_PHONE;
-        const ownerKey   = process.env.OWNER_CALLMEBOT_KEY;
-        if (ownerPhone && ownerKey) {
-          await sendWhatsApp(ownerPhone, ownerKey, texto);
+        if (process.env.OWNER_PHONE) {
+          await sendWhatsApp(process.env.OWNER_PHONE, texto);
         }
-
-        // Enviar al responsable si tiene CallMeBot configurado
-        if (cam.telefono && cam.callmebotApiKey) {
-          await sendWhatsApp(cam.telefono, cam.callmebotApiKey, texto);
+        // Enviar al responsable si tiene teléfono cargado
+        if (cam.telefono) {
+          await sendWhatsApp(cam.telefono, texto);
         }
 
         await Camioneta.findByIdAndUpdate(cam._id, { serviceNotificado: true });
