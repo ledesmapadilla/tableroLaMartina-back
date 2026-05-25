@@ -38,7 +38,7 @@ export const getByMesAño = async (req, res) => {
   try {
     const { camioneta, mes, año } = req.query;
     const item = await CheckList.findOne({ camioneta, mes, año: Number(año) }).populate("camioneta", "marca patente");
-    if (!item) return res.status(404).json({ error: "No encontrado" });
+    if (!item) return res.status(200).json(null);
     res.json(item);
   } catch (error) {
     res.status(500).json({ error: error.message });
