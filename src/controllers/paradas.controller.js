@@ -46,3 +46,13 @@ export const eliminar = async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 };
+
+export const getAbiertasIds = async (req, res) => {
+  try {
+    const paradas = await Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta");
+    const ids = paradas.map((p) => p.camioneta ? p.camioneta.toString() : "");
+    res.json(ids.filter(Boolean));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
