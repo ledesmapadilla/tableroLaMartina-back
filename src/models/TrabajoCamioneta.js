@@ -25,4 +25,7 @@ const TrabajoCamionetaSchema = new Schema(
   { timestamps: true }
 );
 
+TrabajoCamionetaSchema.index({ camioneta: 1, fecha: -1 });
+TrabajoCamionetaSchema.index({ estado: 1 });
+
 export default model("TrabajoCamioneta", TrabajoCamionetaSchema);

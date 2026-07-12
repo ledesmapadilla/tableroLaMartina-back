@@ -10,4 +10,7 @@ const ParadaSchema = new Schema(
   { timestamps: true }
 );
 
+ParadaSchema.index({ camioneta: 1 });
+ParadaSchema.index({ fechaArranque: 1 });
+
 export default model("Parada", ParadaSchema);

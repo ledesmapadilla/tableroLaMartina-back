@@ -13,4 +13,7 @@ const KilometroSchema = new Schema(
   { timestamps: true }
 );
 
+KilometroSchema.index({ camioneta: 1, fecha: -1 });
+KilometroSchema.index({ anio: 1, mes: 1 });
+
 export default model("Kilometro", KilometroSchema);

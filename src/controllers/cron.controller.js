@@ -31,10 +31,16 @@ export const checkServices = async (req, res) => {
     const notificadas = [];
     const yaAlDia    = [];
 
-    for (const cam of camionetas) {
-      const latestKm   = await Kilometro.findOne({ camioneta: cam._id }).sort({ anio: -1, mes: -1, createdAt: -1 });
-      const lastService = await Service.findOne({ camioneta: cam._id }).sort({ fecha: -1, createdAt: -1 });
+    // Paralelizar las consultas de base de datos para todas las camionetas
+    const results = await Promise.all(camionetas.map(async (cam) => {
+      const [latestKm, lastService] = await Promise.all([
+        Kilometro.findOne({ camioneta: cam._id }).sort({ anio: -1, mes: -1, createdAt: -1 }),
+        Service.findOne({ camioneta: cam._id }).sort({ fecha: -1, createdAt: -1 })
+      ]);
+      return { cam, latestKm, lastService };
+    }));
 
+    for (const { cam, latestKm, lastService } of results) {
       if (!latestKm || !lastService) continue;
 
       const kmActual  = latestKm.kms;

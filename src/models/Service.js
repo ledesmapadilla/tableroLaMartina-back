@@ -11,4 +11,6 @@ const ServiceSchema = new Schema(
   { timestamps: true }
 );
 
+ServiceSchema.index({ camioneta: 1, fecha: -1 });
+
 export default model("Service", ServiceSchema);

@@ -31,4 +31,6 @@ const CheckListSchema = new Schema(
   { timestamps: true }
 );
 
+CheckListSchema.index({ camioneta: 1, mes: 1, año: 1 });
+
 export default model("CheckList", CheckListSchema);
