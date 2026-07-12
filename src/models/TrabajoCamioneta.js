@@ -9,6 +9,7 @@ const TrabajoCamionetaSchema = new Schema(
     parte:       { type: String, default: "" },
     prioridad:   { type: String, default: "Normal" },
     estado:      { type: String, default: "Pendiente" },
+    responsable: { type: String, default: "" },
     observaciones: { type: String, default: "" },
     maquinaParada: { type: Boolean, default: false },
     repuestos: [{
