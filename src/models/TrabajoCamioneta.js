@@ -4,20 +4,22 @@ const TrabajoCamionetaSchema = new Schema(
   {
     camioneta:   { type: Schema.Types.ObjectId, ref: "Camioneta", required: true },
     fecha:       { type: Date, required: true },
-    descripcion: { type: String, required: true },
-    trabajosRealizados: [{
-      descripcion: { type: String, default: "" },
-      hecho:       { type: Boolean, default: false },
-    }],
+    reparacion:  { type: String, default: "" },
+    descripcion: { type: String, default: "" },
+    parte:       { type: String, default: "" },
+    prioridad:   { type: String, default: "Normal" },
+    estado:      { type: String, default: "Pendiente" },
+    observaciones: { type: String, default: "" },
+    maquinaParada: { type: Boolean, default: false },
     repuestos: [{
-      nombre:       { type: String, default: "" },
-      costo:        { type: Number, default: null },
+      repuesto:     { type: String, default: "" },
+      cantidad:     { type: Number, default: 1 },
+      precio:       { type: Number, default: 0 },
+      proveedor:    { type: String, default: "" },
+      responsable:  { type: String, default: "" },
+      estado:       { type: String, default: "Pedido" },
       observaciones:{ type: String, default: "" },
     }],
-    detalle:     { type: String, default: "" },
-    estado:      { type: String, enum: ["pendiente", "en proceso", "terminada"], default: "pendiente" },
-    urgencia:    { type: String, enum: ["baja", "media", "alta"], default: "baja" },
-    responsable: { type: String, default: "" },
   },
   { timestamps: true }
 );
