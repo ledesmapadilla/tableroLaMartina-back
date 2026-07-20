@@ -1,9 +1,21 @@
 import Parada from "../models/Parada.js";
+import Camioneta from "../models/Camioneta.js";
 
 export const getAbiertasCount = async (req, res) => {
   try {
-    const count = await Parada.countDocuments({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] });
-    res.json({ count });
+    const [paradas, camionetas] = await Promise.all([
+      Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta"),
+      Camioneta.find({}, "_id"),
+    ]);
+
+    const camionetasIds = new Set(camionetas.map((c) => c._id.toString()));
+    const unidadesParadas = new Set(
+      paradas
+        .map((p) => p.camioneta?.toString())
+        .filter((id) => id && camionetasIds.has(id))
+    );
+
+    res.json({ count: unidadesParadas.size });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -49,9 +61,20 @@ export const eliminar = async (req, res) => {
 
 export const getAbiertasIds = async (req, res) => {
   try {
-    const paradas = await Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta");
-    const ids = paradas.map((p) => p.camioneta ? p.camioneta.toString() : "");
-    res.json(ids.filter(Boolean));
+    const [paradas, camionetas] = await Promise.all([
+      Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta"),
+      Camioneta.find({}, "_id"),
+    ]);
+
+    const camionetasIds = new Set(camionetas.map((c) => c._id.toString()));
+    const ids = Array.from(
+      new Set(
+        paradas
+          .map((p) => p.camioneta?.toString())
+          .filter((id) => id && camionetasIds.has(id))
+      )
+    );
+    res.json(ids);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
