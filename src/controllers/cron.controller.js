@@ -2,7 +2,14 @@ import Camioneta from "../models/Camioneta.js";
 import Service from "../models/Service.js";
 import Kilometro from "../models/Kilometro.js";
 
-const INTERVAL_KM = 10000;
+const getIntervalKm = (patente, kmsService, odoActual) => {
+  const patClean = (patente || "").replace(/\s+/g, "").toUpperCase();
+  if (patClean === "AI245HB") {
+    const baseKms = kmsService ?? odoActual ?? 0;
+    if (baseKms < 45000) return 15000;
+  }
+  return 10000;
+};
 
 const sendWhatsApp = async (phone, text) => {
   try {
@@ -45,7 +52,8 @@ export const checkServices = async (req, res) => {
 
       const kmActual  = latestKm.kms;
       const kmService = lastService.kms;
-      const atrasado  = kmActual - kmService >= INTERVAL_KM;
+      const interval  = getIntervalKm(cam.patente, kmService, kmActual);
+      const atrasado  = kmActual - kmService >= interval;
 
       if (!atrasado && cam.serviceNotificado) {
         await Camioneta.findByIdAndUpdate(cam._id, { serviceNotificado: false });
