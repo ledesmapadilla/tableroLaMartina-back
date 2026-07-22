@@ -3,7 +3,7 @@ import TrabajoTractor from "../models/TrabajoTractor.js";
 export const getAll = async (req, res) => {
   try {
     const trabajos = await TrabajoTractor.find()
-      .populate("tractor", "cc descripcion supervisor gruppo")
+      .populate("tractor", "cc descripcion supervisor encargadoGral gruppo")
       .sort({ fecha: -1 });
     res.json(trabajos);
   } catch (e) {
