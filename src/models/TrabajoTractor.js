@@ -5,6 +5,7 @@ const TrabajoTractorSchema = new Schema(
     tractor:     { type: Schema.Types.ObjectId, ref: "Tractor", required: true },
     fecha:       { type: Date, required: true },
     reparacion:  { type: String, default: "" },
+    diagnostico: { type: String, default: "" },
     descripcion: { type: String, default: "" },
     parte:       { type: String, default: "" },
     prioridad:   { type: String, default: "Normal" },
