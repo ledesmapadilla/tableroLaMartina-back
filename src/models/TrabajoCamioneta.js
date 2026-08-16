@@ -11,6 +11,8 @@ const TrabajoCamionetaSchema = new Schema(
     prioridad:   { type: String, default: "Normal" },
     estado:      { type: String, default: "Pendiente" },
     responsable: { type: String, default: "" },
+    taller:      { type: String, default: "Taller Propio" },
+    nombreTaller:{ type: String, default: "" },
     observaciones: { type: String, default: "" },
     maquinaParada: { type: Boolean, default: false },
     repuestos: [{

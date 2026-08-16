@@ -2,7 +2,7 @@ import Camioneta from "../models/Camioneta.js";
 
 export const getAll = async (req, res) => {
   try {
-    const camionetas = await Camioneta.find().sort({ marca: 1 });
+    const camionetas = await Camioneta.find().sort({ marca: 1 }).lean();
     res.json(camionetas);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -11,7 +11,7 @@ export const getAll = async (req, res) => {
 
 export const getById = async (req, res) => {
   try {
-    const camioneta = await Camioneta.findById(req.params.id);
+    const camioneta = await Camioneta.findById(req.params.id).lean();
     if (!camioneta) return res.status(404).json({ error: "Camioneta no encontrada" });
     res.json(camioneta);
   } catch (error) {

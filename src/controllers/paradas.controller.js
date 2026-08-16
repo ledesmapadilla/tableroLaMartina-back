@@ -1,21 +1,29 @@
 import Parada from "../models/Parada.js";
 import Camioneta from "../models/Camioneta.js";
+import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
 
 export const getAbiertasCount = async (req, res) => {
   try {
-    const [paradas, camionetas] = await Promise.all([
-      Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta"),
-      Camioneta.find({}, "_id"),
+    const [paradas, trabajosParados] = await Promise.all([
+      Parada.find({
+        $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }],
+      })
+        .select("camioneta")
+        .lean(),
+      TrabajoCamioneta.find({
+        maquinaParada: true,
+        estado: { $nin: ["Terminada", "terminada", "Terminado"] },
+      })
+        .select("camioneta")
+        .lean(),
     ]);
 
-    const camionetasIds = new Set(camionetas.map((c) => c._id.toString()));
-    const unidadesParadas = new Set(
-      paradas
-        .map((p) => p.camioneta?.toString())
-        .filter((id) => id && camionetasIds.has(id))
-    );
+    const setIds = new Set([
+      ...paradas.map((p) => p.camioneta?.toString()).filter(Boolean),
+      ...trabajosParados.map((t) => t.camioneta?.toString()).filter(Boolean),
+    ]);
 
-    res.json({ count: unidadesParadas.size });
+    res.json({ count: setIds.size });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -23,7 +31,9 @@ export const getAbiertasCount = async (req, res) => {
 
 export const getPorCamioneta = async (req, res) => {
   try {
-    const paradas = await Parada.find({ camioneta: req.params.camionetaId }).sort({ fechaParada: -1 });
+    const paradas = await Parada.find({ camioneta: req.params.camionetaId })
+      .sort({ fechaParada: -1 })
+      .lean();
     res.json(paradas);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -61,20 +71,26 @@ export const eliminar = async (req, res) => {
 
 export const getAbiertasIds = async (req, res) => {
   try {
-    const [paradas, camionetas] = await Promise.all([
-      Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] }, "camioneta"),
-      Camioneta.find({}, "_id"),
+    const [paradas, trabajosParados] = await Promise.all([
+      Parada.find({
+        $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }],
+      })
+        .select("camioneta")
+        .lean(),
+      TrabajoCamioneta.find({
+        maquinaParada: true,
+        estado: { $nin: ["Terminada", "terminada", "Terminado"] },
+      })
+        .select("camioneta")
+        .lean(),
     ]);
 
-    const camionetasIds = new Set(camionetas.map((c) => c._id.toString()));
-    const ids = Array.from(
-      new Set(
-        paradas
-          .map((p) => p.camioneta?.toString())
-          .filter((id) => id && camionetasIds.has(id))
-      )
-    );
-    res.json(ids);
+    const setIds = new Set([
+      ...paradas.map((p) => p.camioneta?.toString()).filter(Boolean),
+      ...trabajosParados.map((t) => t.camioneta?.toString()).filter(Boolean),
+    ]);
+
+    res.json(Array.from(setIds));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

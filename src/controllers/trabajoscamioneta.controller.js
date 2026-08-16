@@ -4,7 +4,8 @@ export const getAll = async (req, res) => {
   try {
     const trabajos = await TrabajoCamioneta.find()
       .populate("camioneta", "patente marca responsable")
-      .sort({ fecha: -1 });
+      .sort({ fecha: -1 })
+      .lean();
     res.json(trabajos);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -13,8 +14,14 @@ export const getAll = async (req, res) => {
 
 export const getPendientesIds = async (req, res) => {
   try {
-    const ids = await TrabajoCamioneta.distinct("camioneta", { estado: { $ne: "terminada" } });
-    res.json(ids.map((id) => id.toString()));
+    const trabajos = await TrabajoCamioneta.find({
+      estado: { $in: ["Pendiente", "pendiente", "En proceso", "en proceso", "En Proceso"] },
+    })
+      .select("camioneta")
+      .lean();
+
+    const setIds = new Set(trabajos.map((t) => t.camioneta?.toString()).filter(Boolean));
+    res.json(Array.from(setIds));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -22,7 +29,7 @@ export const getPendientesIds = async (req, res) => {
 
 export const getById = async (req, res) => {
   try {
-    const trabajo = await TrabajoCamioneta.findById(req.params.id);
+    const trabajo = await TrabajoCamioneta.findById(req.params.id).lean();
     if (!trabajo) return res.status(404).json({ error: "No encontrado" });
     res.json(trabajo);
   } catch (e) {
@@ -32,7 +39,9 @@ export const getById = async (req, res) => {
 
 export const getPorCamioneta = async (req, res) => {
   try {
-    const trabajos = await TrabajoCamioneta.find({ camioneta: req.params.camionetaId }).sort({ fecha: -1 });
+    const trabajos = await TrabajoCamioneta.find({ camioneta: req.params.camionetaId })
+      .sort({ fecha: -1, createdAt: -1, _id: -1 })
+      .lean();
     res.json(trabajos);
   } catch (e) {
     res.status(500).json({ error: e.message });
