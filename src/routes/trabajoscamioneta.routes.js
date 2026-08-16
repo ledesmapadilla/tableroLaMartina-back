@@ -6,6 +6,7 @@ const router = Router();
 router.get("/", getAll);
 router.get("/pendientes/ids", getPendientesIds);
 router.get("/tarea/:id", getById);
+router.get("/camioneta/:camionetaId", getPorCamioneta);
 router.get("/:camionetaId", getPorCamioneta);
 router.post("/", crear);
 router.put("/:id", actualizar);
