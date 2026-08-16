@@ -7,7 +7,7 @@ const KilometroSchema = new Schema(
     anio:         { type: Number },
     fecha:        { type: Date, required: true },
     responsable:  { type: String },
-    kms:          { type: Number, required: true },
+    kms:          { type: Schema.Types.Mixed, required: true },
     observaciones:{ type: String },
   },
   { timestamps: true }
