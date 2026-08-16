@@ -83,3 +83,15 @@ export const create = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+export const update = async (req, res) => {
+  try {
+    const registro = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
+      .populate("camioneta", "patente marca");
+    if (!registro) return res.status(404).json({ error: "No encontrado" });
+    res.json(registro);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
