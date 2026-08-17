@@ -3,8 +3,9 @@ import Kilometro from "../models/Kilometro.js";
 export const getAll = async (req, res) => {
   try {
     const registros = await Kilometro.find()
-      .populate("camioneta", "patente marca")
-      .sort({ fecha: -1 });
+      .populate("camioneta", "patente marca responsable")
+      .sort({ fecha: -1 })
+      .lean();
     res.json(registros);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -38,8 +39,14 @@ export const getPorAño = async (req, res) => {
   try {
     const año = Number(req.params.año);
     const registros = await Kilometro.find({
-      fecha: { $gte: new Date(año, 0, 1), $lt: new Date(año + 1, 0, 1) },
-    }).populate("camioneta", "patente marca");
+      $or: [
+        { anio: año },
+        { fecha: { $gte: new Date(año, 0, 1), $lt: new Date(año + 1, 0, 1) } },
+      ],
+    })
+      .populate("camioneta", "patente marca responsable")
+      .sort({ fecha: -1 })
+      .lean();
     res.json(registros);
   } catch (error) {
     res.status(500).json({ error: error.message });

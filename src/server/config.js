@@ -3,7 +3,7 @@ import cors from "cors";
 import morgan from "morgan";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import "./dbconfig.js";
+import { connectDB } from "./dbconfig.js";
 import "colors";
 
 export default class Server {
@@ -18,9 +18,17 @@ export default class Server {
     this.app.use(express.json());
     this.app.use(morgan("dev"));
 
-    const __dirname = dirname(fileURLToPath(import.meta.url));
+    this.app.use(async (req, res, next) => {
+      try {
+        await connectDB();
+        next();
+      } catch (error) {
+        console.error("Error conectando a la base de datos:", error.message);
+        res.status(500).json({ error: "Error conectando a la base de datos: " + error.message });
+      }
+    });
 
-    console.log(__dirname + "/../../public");
+    const __dirname = dirname(fileURLToPath(import.meta.url));
 
     this.app.use(express.static(__dirname + "/../../public"));
   }
