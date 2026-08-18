@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "node --env-file .env --watch index",
-    "start": "node index"
+    "start": "node index",
+    "indexes": "node --env-file .env scripts/syncIndexes.js"
   },
   "type": "module",
   "keywords": [],

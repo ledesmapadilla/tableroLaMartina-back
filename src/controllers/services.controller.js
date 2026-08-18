@@ -15,7 +15,9 @@ export const getAll = async (req, res) => {
 export const getUltimos = async (req, res) => {
   try {
     const registros = await Service.aggregate([
-      { $sort: { fecha: -1, createdAt: -1 } },
+      // Ordenar por el indice {camioneta:1, fecha:-1}: asi el $group toma el
+      // primero de cada camioneta sin COLLSCAN ni sort en memoria.
+      { $sort: { camioneta: 1, fecha: -1, createdAt: -1 } },
       { $group: { _id: "$camioneta", doc: { $first: "$$ROOT" } } },
       { $replaceRoot: { newRoot: "$doc" } },
       {
@@ -40,7 +42,9 @@ export const getUltimosPorAño = async (req, res) => {
     const año = Number(req.params.año);
     const registros = await Service.aggregate([
       { $match: { fecha: { $gte: new Date(año, 0, 1), $lt: new Date(año + 1, 0, 1) } } },
-      { $sort: { fecha: -1, createdAt: -1 } },
+      // Ordenar por el indice {camioneta:1, fecha:-1}: asi el $group toma el
+      // primero de cada camioneta sin COLLSCAN ni sort en memoria.
+      { $sort: { camioneta: 1, fecha: -1, createdAt: -1 } },
       { $group: { _id: "$camioneta", doc: { $first: "$$ROOT" } } },
       { $replaceRoot: { newRoot: "$doc" } },
       { $lookup: { from: "camionetas", localField: "camioneta", foreignField: "_id", as: "camioneta" } },

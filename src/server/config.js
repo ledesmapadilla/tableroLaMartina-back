@@ -16,7 +16,11 @@ export default class Server {
   middleware() {
     this.app.use(cors());
     this.app.use(express.json());
-    this.app.use(morgan("dev"));
+    // morgan escribe una linea por request; en serverless eso es I/O de log
+    // en el camino critico de cada invocacion.
+    if (process.env.NODE_ENV !== "production") {
+      this.app.use(morgan("dev"));
+    }
 
     this.app.use(async (req, res, next) => {
       try {
@@ -34,6 +38,10 @@ export default class Server {
   }
 
   listen() {
+    // En Vercel el runtime invoca el handler exportado: abrir un listener
+    // propio solo agrega trabajo al arranque en frio.
+    if (process.env.VERCEL) return;
+
     this.app.listen(this.port, () =>
       console.info(
         `EL SERVIDOR SE ESTA EJECUTANDO EN: http://localhost:${this.port}`.blue,

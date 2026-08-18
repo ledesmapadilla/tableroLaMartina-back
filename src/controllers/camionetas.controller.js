@@ -1,4 +1,6 @@
 import Camioneta from "../models/Camioneta.js";
+import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
+import Parada from "../models/Parada.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -53,6 +55,68 @@ export const remove = async (req, res) => {
     const camioneta = await Camioneta.findByIdAndDelete(req.params.id);
     if (!camioneta) return res.status(404).json({ error: "Camioneta no encontrada" });
     res.json({ message: "Camioneta eliminada" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Pantalla de reparaciones (listado). Antes el front pedia camionetas,
+// pendientes y paradas por separado: tres invocaciones concurrentes, cada una
+// con su propio arranque en frio y su propia conexion a Mongo.
+export const getResumenReparaciones = async (req, res) => {
+  try {
+    const [camionetas, trabajos, paradas] = await Promise.all([
+      Camioneta.find().sort({ marca: 1 }).lean(),
+      TrabajoCamioneta.find({
+        $or: [
+          { estado: { $in: ["Pendiente", "pendiente", "En proceso", "en proceso", "En Proceso"] } },
+          { maquinaParada: true, estado: { $nin: ["Terminada", "terminada", "Terminado"] } },
+        ],
+      })
+        .select("camioneta estado maquinaParada")
+        .lean(),
+      Parada.find({ $or: [{ fechaArranque: null }, { fechaArranque: { $exists: false } }] })
+        .select("camioneta")
+        .lean(),
+    ]);
+
+    const pendientes = new Set();
+    const detenidas = new Set();
+
+    for (const t of trabajos) {
+      const id = t.camioneta?.toString();
+      if (!id) continue;
+      const estado = (t.estado || "").toLowerCase();
+      if (estado === "pendiente" || estado === "en proceso") pendientes.add(id);
+      if (t.maquinaParada && !estado.startsWith("terminad")) detenidas.add(id);
+    }
+    for (const p of paradas) {
+      const id = p.camioneta?.toString();
+      if (id) detenidas.add(id);
+    }
+
+    res.json({
+      camionetas,
+      pendientes: Array.from(pendientes),
+      paradas: Array.from(detenidas),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Detalle de reparaciones de una camioneta, en una sola invocacion.
+export const getDetalleReparaciones = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [camioneta, trabajos, paradas] = await Promise.all([
+      Camioneta.findById(id).lean(),
+      TrabajoCamioneta.find({ camioneta: id }).sort({ fecha: -1, createdAt: -1, _id: -1 }).lean(),
+      Parada.find({ camioneta: id }).sort({ fechaParada: -1 }).lean(),
+    ]);
+
+    if (!camioneta) return res.status(404).json({ error: "Camioneta no encontrada" });
+    res.json({ camioneta, trabajos, paradas });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

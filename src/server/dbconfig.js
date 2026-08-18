@@ -18,6 +18,9 @@ export async function connectDB() {
       minPoolSize: 1,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      // En serverless cada arranque en frio compilaria los indices de los 12
+      // modelos antes de responder. Se crean aparte con: npm run indexes
+      autoIndex: false,
     };
 
     cached.promise = mongoose.connect(process.env.MONGODB, opts).then((m) => {
