@@ -1,4 +1,4 @@
-﻿import ServiceTractor from "../models/ServiceTractor.js";
+import ServiceTractor from "../models/ServiceTractor.js";
 import Tractor from "../models/Tractor.js";
 import Visita from "../models/Visita.js";
 
@@ -87,10 +87,17 @@ export const getUltimosHorometros = async (req, res) => {
 
     visitas.forEach((v) => {
       if (v.cc && v.horometro && v.horometro.toUpperCase() !== "S/H") {
+        const cleanCC = String(v.cc).replace(/^cc\s*/i, "").trim();
         const num = parseFloat(v.horometro);
         if (!isNaN(num)) {
+          const fechaStr = v.fecha ? String(v.fecha).split("T")[0] : "";
+          const entry = { horometro: num, fecha: fechaStr, origen: "visita" };
+
+          if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < num) {
+            horometrosMap[cleanCC] = entry;
+          }
           if (!horometrosMap[v.cc] || horometrosMap[v.cc].horometro < num) {
-            horometrosMap[v.cc] = { horometro: num, fecha: v.fecha, origen: "visita" };
+            horometrosMap[v.cc] = entry;
           }
         }
       }
@@ -99,12 +106,15 @@ export const getUltimosHorometros = async (req, res) => {
     const services = await ServiceTractor.find().sort({ fecha: -1, createdAt: -1 });
     services.forEach((s) => {
       if (s.cc && typeof s.horometro === "number") {
+        const cleanCC = String(s.cc).replace(/^cc\s*/i, "").trim();
+        const fechaStr = s.fecha ? (typeof s.fecha === "string" ? s.fecha.split("T")[0] : s.fecha.toISOString().split("T")[0]) : "";
+        const entry = { horometro: s.horometro, fecha: fechaStr, origen: "service" };
+
+        if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < s.horometro) {
+          horometrosMap[cleanCC] = entry;
+        }
         if (!horometrosMap[s.cc] || horometrosMap[s.cc].horometro < s.horometro) {
-          horometrosMap[s.cc] = {
-            horometro: s.horometro,
-            fecha: s.fecha ? s.fecha.toISOString().split("T")[0] : "",
-            origen: "service",
-          };
+          horometrosMap[s.cc] = entry;
         }
       }
     });
