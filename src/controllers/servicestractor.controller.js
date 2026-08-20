@@ -69,7 +69,17 @@ export const getUltimosPorAño = async (req, res) => {
 export const getHistorialPorTractor = async (req, res) => {
   try {
     const { tractorId } = req.params;
-    const registros = await ServiceTractor.find({ tractor: tractorId })
+    const tractorDoc = await Tractor.findById(tractorId);
+
+    const orConditions = [{ tractor: tractorId }];
+    if (tractorDoc?.cc) {
+      const clean = String(tractorDoc.cc).replace(/^cc\s*/i, "").trim();
+      orConditions.push({ cc: tractorDoc.cc });
+      orConditions.push({ cc: clean });
+      orConditions.push({ cc: `CC ${clean}` });
+    }
+
+    const registros = await ServiceTractor.find({ $or: orConditions })
       .populate("tractor", "cc descripcion supervisor gruppo")
       .sort({ fecha: -1, createdAt: -1 });
     res.json(registros);
