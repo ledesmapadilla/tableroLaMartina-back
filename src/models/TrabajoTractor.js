@@ -12,6 +12,7 @@ const TrabajoTractorSchema = new Schema(
     prioridad:   { type: String, default: "Normal" },
     estado:      { type: String, default: "Pendiente" },
     responsable: { type: String, default: "" },
+    horometro:   { type: Schema.Types.Mixed, default: "" },
     taller:      { type: String, default: "Taller Propio" },
     nombreTaller:{ type: String, default: "" },
     observaciones: { type: String, default: "" },

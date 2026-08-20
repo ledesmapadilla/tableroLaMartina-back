@@ -1,6 +1,7 @@
 import ServiceTractor from "../models/ServiceTractor.js";
 import Tractor from "../models/Tractor.js";
 import Visita from "../models/Visita.js";
+import TrabajoTractor from "../models/TrabajoTractor.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -115,6 +116,31 @@ export const getUltimosHorometros = async (req, res) => {
         }
         if (!horometrosMap[s.cc] || horometrosMap[s.cc].horometro < s.horometro) {
           horometrosMap[s.cc] = entry;
+        }
+      }
+    });
+
+    const trabajos = await TrabajoTractor.find({
+      horometro: { $exists: true, $ne: "" },
+    })
+      .populate("tractor", "cc")
+      .sort({ fecha: -1, createdAt: -1 });
+
+    trabajos.forEach((t) => {
+      const cc = t.tractor?.cc || t.cc;
+      if (cc && t.horometro) {
+        const cleanCC = String(cc).replace(/^cc\s*/i, "").trim();
+        const num = parseFloat(t.horometro);
+        if (!isNaN(num)) {
+          const fechaStr = t.fecha ? (typeof t.fecha === "string" ? t.fecha.split("T")[0] : t.fecha.toISOString().split("T")[0]) : "";
+          const entry = { horometro: num, fecha: fechaStr, origen: "reparacion" };
+
+          if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < num) {
+            horometrosMap[cleanCC] = entry;
+          }
+          if (!horometrosMap[cc] || horometrosMap[cc].horometro < num) {
+            horometrosMap[cc] = entry;
+          }
         }
       }
     });
