@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import ServiceTractor from "../models/ServiceTractor.js";
 import Tractor from "../models/Tractor.js";
 import Visita from "../models/Visita.js";
@@ -69,17 +70,37 @@ export const getUltimosPorAño = async (req, res) => {
 export const getHistorialPorTractor = async (req, res) => {
   try {
     const { tractorId } = req.params;
-    const tractorDoc = await Tractor.findById(tractorId);
+    let tractorDoc = null;
+    if (mongoose.Types.ObjectId.isValid(tractorId)) {
+      tractorDoc = await Tractor.findById(tractorId);
+    }
+    if (!tractorDoc) {
+      tractorDoc = await Tractor.findOne({
+        $or: [
+          { cc: tractorId },
+          { cc: String(tractorId).replace(/^cc\s*/i, "").trim() },
+          { cc: `CC ${String(tractorId).replace(/^cc\s*/i, "").trim()}` },
+        ],
+      });
+    }
 
-    const orConditions = [{ tractor: tractorId }];
+    const orConditions = [];
+    if (mongoose.Types.ObjectId.isValid(tractorId)) {
+      orConditions.push({ tractor: tractorId });
+    }
+    if (tractorDoc?._id) {
+      orConditions.push({ tractor: tractorDoc._id });
+    }
     if (tractorDoc?.cc) {
       const clean = String(tractorDoc.cc).replace(/^cc\s*/i, "").trim();
       orConditions.push({ cc: tractorDoc.cc });
       orConditions.push({ cc: clean });
       orConditions.push({ cc: `CC ${clean}` });
+    } else if (tractorId) {
+      orConditions.push({ cc: tractorId });
     }
 
-    const registros = await ServiceTractor.find({ $or: orConditions })
+    const registros = await ServiceTractor.find(orConditions.length ? { $or: orConditions } : {})
       .populate("tractor", "cc descripcion supervisor gruppo")
       .sort({ fecha: -1, createdAt: -1 });
     res.json(registros);
