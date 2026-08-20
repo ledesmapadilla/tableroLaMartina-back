@@ -86,37 +86,78 @@ export const getUltimosHorometros = async (req, res) => {
 
     const horometrosMap = {};
 
-    visitas.forEach((v) => {
-      if (v.cc && v.horometro && v.horometro.toUpperCase() !== "S/H") {
-        const cleanCC = String(v.cc).replace(/^cc\s*/i, "").trim();
-        const num = parseFloat(v.horometro);
-        if (!isNaN(num)) {
-          const fechaStr = v.fecha ? String(v.fecha).split("T")[0] : "";
-          const entry = { horometro: num, fecha: fechaStr, origen: "visita" };
+    const registrarHorometro = (ccRaw, horoRaw, fechaStr, origen) => {
+      if (!ccRaw || !horoRaw) return;
+      const strHoro = String(horoRaw).trim();
+      if (strHoro.toUpperCase() === "S/H") return;
 
-          if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < num) {
-            horometrosMap[cleanCC] = entry;
-          }
-          if (!horometrosMap[v.cc] || horometrosMap[v.cc].horometro < num) {
-            horometrosMap[v.cc] = entry;
-          }
+      const matchNum = strHoro.match(/[\d]+(?:[.,]\d+)?/);
+      if (!matchNum) return;
+      const num = parseFloat(matchNum[0].replace(",", "."));
+      if (isNaN(num)) return;
+
+      const cleanCC = String(ccRaw).replace(/^cc\s*/i, "").trim();
+      const fullCC = `CC ${cleanCC}`;
+      const entry = { horometro: num, fecha: fechaStr, origen };
+
+      const actualizar = (key) => {
+        if (!key) return;
+        if (!horometrosMap[key] || horometrosMap[key].horometro < num) {
+          horometrosMap[key] = entry;
         }
+      };
+
+      actualizar(cleanCC);
+      actualizar(fullCC);
+      actualizar(String(ccRaw).trim());
+    };
+
+    visitas.forEach((v) => {
+      if (!v.cc || !v.horometro) return;
+      const fechaStr = v.fecha ? (typeof v.fecha === "string" ? v.fecha.split("T")[0] : v.fecha.toISOString().split("T")[0]) : "";
+
+      const horometroStr = String(v.horometro).trim();
+      const ccStr = String(v.cc).trim();
+
+      if (horometroStr.includes(":") || ccStr.includes(",")) {
+        const ccs = ccStr.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+
+        ccs.forEach((c) => {
+          const cleanC = c.replace(/^cc\s*/i, "").trim();
+          const regexConDosPuntos = new RegExp(`(?:CC\\s*)?${cleanC}\\s*:\\s*([^,;]+)`, "i");
+          const match = horometroStr.match(regexConDosPuntos);
+
+          if (match) {
+            const hVal = match[1].replace(/\s*hs/i, "").trim();
+            registrarHorometro(c, hVal, fechaStr, "visita");
+          } else {
+            const partesHoro = horometroStr.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+            if (partesHoro.length === ccs.length) {
+              const idx = ccs.indexOf(c);
+              if (idx !== -1) {
+                registrarHorometro(c, partesHoro[idx], fechaStr, "visita");
+              }
+            }
+          }
+        });
+
+        // Capturar cualquier otro tractor especificado en el string
+        const todosConDosPuntos = horometroStr.matchAll(/(?:CC\s*)?([0-9a-zA-Z\-_]+)\s*:\s*([^,;]+)/gi);
+        for (const m of todosConDosPuntos) {
+          const foundCC = m[1];
+          const foundVal = m[2].replace(/\s*hs/i, "").trim();
+          registrarHorometro(foundCC, foundVal, fechaStr, "visita");
+        }
+      } else {
+        registrarHorometro(v.cc, v.horometro, fechaStr, "visita");
       }
     });
 
     const services = await ServiceTractor.find().sort({ fecha: -1, createdAt: -1 });
     services.forEach((s) => {
       if (s.cc && typeof s.horometro === "number") {
-        const cleanCC = String(s.cc).replace(/^cc\s*/i, "").trim();
         const fechaStr = s.fecha ? (typeof s.fecha === "string" ? s.fecha.split("T")[0] : s.fecha.toISOString().split("T")[0]) : "";
-        const entry = { horometro: s.horometro, fecha: fechaStr, origen: "service" };
-
-        if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < s.horometro) {
-          horometrosMap[cleanCC] = entry;
-        }
-        if (!horometrosMap[s.cc] || horometrosMap[s.cc].horometro < s.horometro) {
-          horometrosMap[s.cc] = entry;
-        }
+        registrarHorometro(s.cc, s.horometro, fechaStr, "service");
       }
     });
 
@@ -128,20 +169,9 @@ export const getUltimosHorometros = async (req, res) => {
 
     trabajos.forEach((t) => {
       const cc = t.tractor?.cc || t.cc;
-      if (cc && t.horometro) {
-        const cleanCC = String(cc).replace(/^cc\s*/i, "").trim();
-        const num = parseFloat(t.horometro);
-        if (!isNaN(num)) {
-          const fechaStr = t.fecha ? (typeof t.fecha === "string" ? t.fecha.split("T")[0] : t.fecha.toISOString().split("T")[0]) : "";
-          const entry = { horometro: num, fecha: fechaStr, origen: "reparacion" };
-
-          if (!horometrosMap[cleanCC] || horometrosMap[cleanCC].horometro < num) {
-            horometrosMap[cleanCC] = entry;
-          }
-          if (!horometrosMap[cc] || horometrosMap[cc].horometro < num) {
-            horometrosMap[cc] = entry;
-          }
-        }
+      if (cc && t.horometro && String(t.horometro).toUpperCase() !== "S/H") {
+        const fechaStr = t.fecha ? (typeof t.fecha === "string" ? t.fecha.split("T")[0] : t.fecha.toISOString().split("T")[0]) : "";
+        registrarHorometro(cc, t.horometro, fechaStr, "reparacion");
       }
     });
 
