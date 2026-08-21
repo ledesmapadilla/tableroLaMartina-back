@@ -13,6 +13,7 @@ import cronRouter from "./cron.routes.js";
 import configRouter from "./config.routes.js";
 import visitasRouter from "./visitas.routes.js";
 import servicesTractorRouter from "./servicestractor.routes.js";
+import horometrosTractorRouter from "./horometrostractor.routes.js";
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use("/programa-checklist", programaChecklistRouter);
 router.use("/kilometros", kilometrosRouter);
 router.use("/services", servicesRouter);
 router.use("/services-tractor", servicesTractorRouter);
+router.use("/horometros-tractor", horometrosTractorRouter);
 router.use("/paradas", paradasRouter);
 router.use("/trabajos-camioneta", trabajosCamionetaRouter);
 router.use("/trabajos-tractor", trabajosTractorRouter);

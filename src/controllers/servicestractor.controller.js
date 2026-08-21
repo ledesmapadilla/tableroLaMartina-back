@@ -3,6 +3,7 @@ import ServiceTractor from "../models/ServiceTractor.js";
 import Tractor from "../models/Tractor.js";
 import Visita from "../models/Visita.js";
 import TrabajoTractor from "../models/TrabajoTractor.js";
+import HorometroTractor from "../models/HorometroTractor.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -117,7 +118,7 @@ export const getUltimosHorometros = async (req, res) => {
 
     const horometrosMap = {};
 
-    const registrarHorometro = (ccRaw, horoRaw, fechaStr, origen) => {
+    const registrarHorometro = (ccRaw, horoRaw, fechaStr, origen, forzar = false) => {
       if (!ccRaw || !horoRaw) return;
       const strHoro = String(horoRaw).trim();
       if (strHoro.toUpperCase() === "S/H") return;
@@ -133,7 +134,16 @@ export const getUltimosHorometros = async (req, res) => {
 
       const actualizar = (key) => {
         if (!key) return;
-        if (!horometrosMap[key] || horometrosMap[key].horometro < num) {
+        const actual = horometrosMap[key];
+        // Una lectura manual es la fuente autoritativa: pisa lo inferido de
+        // visitas/services/reparaciones aunque el numero sea menor (permite
+        // corregir cargas erroneas). Entre manuales gana la mas reciente, que
+        // por el orden de la consulta es la primera en procesarse.
+        if (forzar) {
+          if (!actual || actual.origen !== "manual") horometrosMap[key] = entry;
+          return;
+        }
+        if (!actual || (actual.origen !== "manual" && actual.horometro < num)) {
           horometrosMap[key] = entry;
         }
       };
@@ -204,6 +214,17 @@ export const getUltimosHorometros = async (req, res) => {
         const fechaStr = t.fecha ? (typeof t.fecha === "string" ? t.fecha.split("T")[0] : t.fecha.toISOString().split("T")[0]) : "";
         registrarHorometro(cc, t.horometro, fechaStr, "reparacion");
       }
+    });
+
+    const manuales = await HorometroTractor.find()
+      .populate("tractor", "cc")
+      .sort({ fecha: -1, createdAt: -1 });
+
+    manuales.forEach((h) => {
+      const cc = h.cc || h.tractor?.cc;
+      if (!cc || typeof h.horometro !== "number") return;
+      const fechaStr = h.fecha ? (typeof h.fecha === "string" ? h.fecha.split("T")[0] : h.fecha.toISOString().split("T")[0]) : "";
+      registrarHorometro(cc, h.horometro, fechaStr, "manual", true);
     });
 
     res.json(horometrosMap);
