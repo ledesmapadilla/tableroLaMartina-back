@@ -55,6 +55,12 @@ export const update = async (req, res) => {
   try {
     const updateData = { ...req.body };
     if (updateData.horometro !== undefined) updateData.horometro = Number(updateData.horometro);
+    // El cc denormalizado es la clave del mapa de ultimos horometros: si la
+    // edicion mueve la lectura a otro tractor, tiene que seguirlo.
+    if (updateData.tractor) {
+      const tractorDoc = await Tractor.findById(updateData.tractor);
+      if (tractorDoc?.cc) updateData.cc = tractorDoc.cc;
+    }
     const registro = await HorometroTractor.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
