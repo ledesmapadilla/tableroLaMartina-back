@@ -257,6 +257,12 @@ export const update = async (req, res) => {
     const updateData = { ...req.body };
     if (updateData.horometro !== undefined) updateData.horometro = Number(updateData.horometro);
     if (updateData.intervalo !== undefined) updateData.intervalo = Number(updateData.intervalo);
+    // Si la edicion cambia el tractor hay que reescribir el cc denormalizado,
+    // que es la clave con la que se arma el mapa de ultimos horometros.
+    if (updateData.tractor) {
+      const tractorDoc = await Tractor.findById(updateData.tractor);
+      if (tractorDoc?.cc) updateData.cc = tractorDoc.cc;
+    }
     const registro = await ServiceTractor.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true,
