@@ -110,8 +110,7 @@ export const getHistorialPorTractor = async (req, res) => {
   }
 };
 
-export const getUltimosHorometros = async (req, res) => {
-  try {
+export const calcularUltimosHorometros = async () => {
     const visitas = await Visita.find({
       horometro: { $exists: true, $ne: "" },
     }).sort({ fecha: -1, createdAt: -1 });
@@ -227,7 +226,13 @@ export const getUltimosHorometros = async (req, res) => {
       registrarHorometro(cc, h.horometro, fechaStr, "manual", true);
     });
 
-    res.json(horometrosMap);
+  return horometrosMap;
+};
+
+// Mismo mapa que expone el endpoint, reutilizable desde otros controladores.
+export const getUltimosHorometros = async (req, res) => {
+  try {
+    res.json(await calcularUltimosHorometros());
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

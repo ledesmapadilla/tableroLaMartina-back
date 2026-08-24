@@ -1,6 +1,42 @@
 import mongoose from "mongoose";
 import HorometroTractor from "../models/HorometroTractor.js";
 import Tractor from "../models/Tractor.js";
+import { calcularUltimosHorometros } from "./servicestractor.controller.js";
+
+const ORIGEN_LABEL = {
+  visita: "visita",
+  service: "service",
+  reparacion: "reparación",
+};
+
+// El +Horom. carga una lectura nueva, pero la anterior puede venir inferida de
+// una visita / service / reparacion y no tener registro propio en el historial.
+// La persistimos antes de guardar la nueva para que queden las dos.
+const persistirLecturaPrevia = async (tractorDoc) => {
+  if (!tractorDoc?.cc) return;
+
+  const mapa = await calcularUltimosHorometros();
+  const cleanCC = String(tractorDoc.cc).replace(/^cc\s*/i, "").trim();
+  const previa = mapa[tractorDoc.cc] || mapa[cleanCC];
+
+  if (!previa || previa.origen === "manual") return;
+  if (typeof previa.horometro !== "number" || !previa.fecha) return;
+
+  const yaExiste = await HorometroTractor.findOne({
+    tractor: tractorDoc._id,
+    horometro: previa.horometro,
+    fecha: new Date(previa.fecha),
+  });
+  if (yaExiste) return;
+
+  await HorometroTractor.create({
+    tractor: tractorDoc._id,
+    cc: tractorDoc.cc,
+    fecha: previa.fecha,
+    horometro: previa.horometro,
+    observaciones: `Lectura anterior (${ORIGEN_LABEL[previa.origen] || previa.origen})`,
+  });
+};
 
 export const getAll = async (req, res) => {
   try {
@@ -37,6 +73,7 @@ export const getHistorialPorTractor = async (req, res) => {
 export const create = async (req, res) => {
   try {
     const tractorDoc = await Tractor.findById(req.body.tractor);
+    await persistirLecturaPrevia(tractorDoc);
     const data = {
       ...req.body,
       cc: tractorDoc?.cc || req.body.cc,
