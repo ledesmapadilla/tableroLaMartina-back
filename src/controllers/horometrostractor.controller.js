@@ -3,6 +3,10 @@ import HorometroTractor from "../models/HorometroTractor.js";
 import Tractor from "../models/Tractor.js";
 import { calcularUltimosHorometros } from "./servicestractor.controller.js";
 
+// Los services ya tienen su propia fila en el historial: materializarlos como
+// lectura duplicaria el evento. Solo faltan los inferidos de visita/reparacion.
+const ORIGENES_A_PERSISTIR = ["visita", "reparacion"];
+
 const ORIGEN_LABEL = {
   visita: "visita",
   service: "service",
@@ -19,7 +23,7 @@ const persistirLecturaPrevia = async (tractorDoc) => {
   const cleanCC = String(tractorDoc.cc).replace(/^cc\s*/i, "").trim();
   const previa = mapa[tractorDoc.cc] || mapa[cleanCC];
 
-  if (!previa || previa.origen === "manual") return;
+  if (!previa || !ORIGENES_A_PERSISTIR.includes(previa.origen)) return;
   if (typeof previa.horometro !== "number" || !previa.fecha) return;
 
   const yaExiste = await HorometroTractor.findOne({

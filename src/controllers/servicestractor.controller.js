@@ -110,7 +110,9 @@ export const getHistorialPorTractor = async (req, res) => {
   }
 };
 
-export const calcularUltimosHorometros = async () => {
+// incluirManuales:false devuelve el horometro que estaba vigente antes de
+// cualquier carga manual (lo que la pantalla mostraba como "Horometro actual").
+export const calcularUltimosHorometros = async ({ incluirManuales = true } = {}) => {
     const visitas = await Visita.find({
       horometro: { $exists: true, $ne: "" },
     }).sort({ fecha: -1, createdAt: -1 });
@@ -215,9 +217,11 @@ export const calcularUltimosHorometros = async () => {
       }
     });
 
-    const manuales = await HorometroTractor.find()
-      .populate("tractor", "cc")
-      .sort({ fecha: -1, createdAt: -1 });
+    const manuales = incluirManuales
+      ? await HorometroTractor.find()
+          .populate("tractor", "cc")
+          .sort({ fecha: -1, createdAt: -1 })
+      : [];
 
     manuales.forEach((h) => {
       const cc = h.cc || h.tractor?.cc;
