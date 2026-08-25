@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import TrabajoTractor from "../models/TrabajoTractor.js";
 import Tractor from "../models/Tractor.js";
+import { registrarLecturaDeReparacion } from "./horometrostractor.controller.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -28,6 +29,8 @@ export const getById = async (req, res) => {
   try {
     const trabajo = await TrabajoTractor.findById(req.params.id);
     if (!trabajo) return res.status(404).json({ error: "No encontrado" });
+    // Si la edicion agrega o cambia el horometro, tambien va al historial.
+    await registrarLecturaDeReparacion(trabajo);
     res.json(trabajo);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -60,6 +63,8 @@ export const crear = async (req, res) => {
       }
     }
     const trabajo = await TrabajoTractor.create(req.body);
+    // La lectura queda tambien en el historial de horometros del tractor.
+    await registrarLecturaDeReparacion(trabajo);
     res.status(201).json(trabajo);
   } catch (e) {
     console.error("Error al crear trabajo tractor:", e);
@@ -71,6 +76,8 @@ export const actualizar = async (req, res) => {
   try {
     const trabajo = await TrabajoTractor.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
     if (!trabajo) return res.status(404).json({ error: "No encontrado" });
+    // Si la edicion agrega o cambia el horometro, tambien va al historial.
+    await registrarLecturaDeReparacion(trabajo);
     res.json(trabajo);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -81,6 +88,8 @@ export const eliminar = async (req, res) => {
   try {
     const trabajo = await TrabajoTractor.findByIdAndDelete(req.params.id);
     if (!trabajo) return res.status(404).json({ error: "No encontrado" });
+    // Si la edicion agrega o cambia el horometro, tambien va al historial.
+    await registrarLecturaDeReparacion(trabajo);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -6,6 +6,9 @@ const HorometroTractorSchema = new Schema(
     cc:            { type: String, trim: true },
     fecha:         { type: Date, required: true },
     horometro:     { type: Number, required: true },
+    // De donde salio la lectura: "manual" (+Horom.) o la fuente de la que se
+    // materializo ("visita" / "reparacion"). Define si pisa a lo inferido.
+    origen:        { type: String, trim: true, default: "manual" },
     observaciones: { type: String, trim: true, default: "" },
   },
   { timestamps: true }

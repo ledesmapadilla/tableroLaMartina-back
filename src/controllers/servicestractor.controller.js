@@ -227,7 +227,10 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
       const cc = h.cc || h.tractor?.cc;
       if (!cc || typeof h.horometro !== "number") return;
       const fechaStr = h.fecha ? (typeof h.fecha === "string" ? h.fecha.split("T")[0] : h.fecha.toISOString().split("T")[0]) : "";
-      registrarHorometro(cc, h.horometro, fechaStr, "manual", true);
+      const origen = h.origen || "manual";
+      // Solo una lectura cargada a mano es autoritativa: las materializadas
+      // desde visitas/reparaciones compiten con su origen real.
+      registrarHorometro(cc, h.horometro, fechaStr, origen, origen === "manual");
     });
 
   return horometrosMap;

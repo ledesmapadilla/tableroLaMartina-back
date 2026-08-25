@@ -13,6 +13,48 @@ const ORIGEN_LABEL = {
   reparacion: "reparación",
 };
 
+// Devuelve el numero de horometro de un valor libre ("1519", "1519 hs", "S/H").
+export const parsearHorometro = (valor) => {
+  if (valor === null || valor === undefined) return null;
+  const str = String(valor).trim();
+  if (!str || str.toUpperCase() === "S/H") return null;
+  const match = str.match(/[\d]+(?:[.,]\d+)?/);
+  if (!match) return null;
+  const num = parseFloat(match[0].replace(",", "."));
+  return isNaN(num) ? null : num;
+};
+
+// Cada lectura tomada al cargar una reparacion se materializa en el historial.
+// Sin esto solo sobrevive la ultima: las anteriores quedan en su trabajo pero
+// el historial de preventivo no las lista y se pierden de vista.
+export const registrarLecturaDeReparacion = async (trabajo) => {
+  const horometro = parsearHorometro(trabajo?.horometro);
+  if (horometro === null || !trabajo?.tractor) return null;
+
+  const tractorDoc = await Tractor.findById(trabajo.tractor);
+  if (!tractorDoc) return null;
+
+  const fecha = trabajo.fecha ? new Date(trabajo.fecha) : new Date();
+  const fechaDia = fecha.toISOString().split("T")[0];
+
+  const yaExiste = await HorometroTractor.findOne({
+    tractor: tractorDoc._id,
+    horometro,
+    fecha: new Date(fechaDia),
+  });
+  if (yaExiste) return null;
+
+  const detalle = String(trabajo.reparacion || trabajo.descripcion || "").trim();
+  return HorometroTractor.create({
+    tractor: tractorDoc._id,
+    cc: tractorDoc.cc,
+    fecha: fechaDia,
+    horometro,
+    origen: "reparacion",
+    observaciones: detalle ? `Reparación: ${detalle.slice(0, 100)}` : "Lectura tomada en reparación",
+  });
+};
+
 // El +Horom. carga una lectura nueva, pero la anterior puede venir inferida de
 // una visita / service / reparacion y no tener registro propio en el historial.
 // La persistimos antes de guardar la nueva para que queden las dos.
@@ -38,6 +80,7 @@ const persistirLecturaPrevia = async (tractorDoc) => {
     cc: tractorDoc.cc,
     fecha: previa.fecha,
     horometro: previa.horometro,
+    origen: previa.origen,
     observaciones: `Lectura anterior (${ORIGEN_LABEL[previa.origen] || previa.origen})`,
   });
 };
