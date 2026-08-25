@@ -136,18 +136,32 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
       const actualizar = (key) => {
         if (!key) return;
         const actual = horometrosMap[key];
-        // El horometro solo avanza: la tabla muestra la lectura mas alta venga
-        // de donde venga (visita, service, reparacion o carga manual).
-        if (!actual || num > actual.horometro) {
+        if (!actual) {
           horometrosMap[key] = entry;
           return;
         }
-        if (num < actual.horometro) return;
-        // A igual valor gana la lectura mas reciente; a igual fecha, la que se
-        // cargo a mano, que es la que alguien confirmo explicitamente.
-        if (entry.fecha > actual.fecha) {
+
+        if (forzar) {
+          // Entre cargas manuales gana la mas reciente. Llegan ordenadas por
+          // fecha descendente, asi que la primera en procesarse es la buena.
+          if (actual.origen === "manual") {
+            if (entry.fecha > actual.fecha) horometrosMap[key] = entry;
+            return;
+          }
+          // Frente a una lectura inferida, la carga manual es una confirmacion
+          // explicita y puede corregir incluso hacia abajo, siempre que sea al
+          // menos tan reciente como la lectura que reemplaza.
+          if (entry.fecha >= actual.fecha || num > actual.horometro) {
+            horometrosMap[key] = entry;
+          }
+          return;
+        }
+
+        // Lectura inferida: el horometro solo avanza. A igual valor se queda la
+        // mas reciente, para que la fecha que se muestra sea la ultima.
+        if (num > actual.horometro) {
           horometrosMap[key] = entry;
-        } else if (entry.fecha === actual.fecha && forzar && actual.origen !== "manual") {
+        } else if (num === actual.horometro && entry.fecha > actual.fecha) {
           horometrosMap[key] = entry;
         }
       };
