@@ -2,7 +2,7 @@ import Colectivo from "../models/Colectivo.js";
 
 export const getAll = async (req, res) => {
   try {
-    const colectivos = await Colectivo.find().sort({ gruppo: 1, supervisor: 1, cc: 1 });
+    const colectivos = await Colectivo.find().sort({ supervisor: 1, cc: 1 });
     res.json(colectivos);
   } catch (error) {
     res.status(500).json({ error: error.message });
