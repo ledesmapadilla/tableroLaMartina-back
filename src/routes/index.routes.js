@@ -18,6 +18,11 @@ import horometrosTractorRouter from "./horometrostractor.routes.js";
 import servicesColectivoRouter from "./servicescolectivo.routes.js";
 import kilometrosColectivoRouter from "./kilometroscolectivo.routes.js";
 import historialTractorRouter from "./historialtractor.routes.js";
+import centrosCostoRouter from "./centroscosto.routes.js";
+import personalRouter from "./personal.routes.js";
+import tareasRouter from "./tareas.routes.js";
+import partesRouter from "./partes.routes.js";
+import periodosRouter from "./periodos.routes.js";
 
 const router = Router();
 
@@ -41,5 +46,10 @@ router.use("/trabajos-tractor", trabajosTractorRouter);
 router.use("/cron", cronRouter);
 router.use("/config", configRouter);
 router.use("/visitas", visitasRouter);
+router.use("/centros-costo", centrosCostoRouter);
+router.use("/personal", personalRouter);
+router.use("/tareas", tareasRouter);
+router.use("/partes", partesRouter);
+router.use("/periodos", periodosRouter);
 
 export default router;
