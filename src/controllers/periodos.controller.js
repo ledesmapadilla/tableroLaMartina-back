@@ -20,7 +20,32 @@ export const getPeriodo = async (req, res) => {
     if (guardado) return res.json(guardado);
 
     // No se crea nada todavía: se devuelve el corte sugerido.
-    res.json({ anio, mes, ...porDefecto(anio, mes), guardado: false });
+    res.json({ anio, mes, ...porDefecto(anio, mes), cerrado: false, fechaCierre: null, guardado: false });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Los 12 meses de un año: lo que esté guardado y, para los que nadie tocó
+// todavía, el corte sugerido. La grilla de meses lo pide de una vez en lugar
+// de hacer doce consultas.
+export const getPeriodosDelAnio = async (req, res) => {
+  try {
+    const anio = Number(req.params.anio);
+    if (!anio) return res.status(400).json({ error: "Año inválido" });
+
+    const guardados = await PeriodoCertificado.find({ anio }).lean();
+    const porMes = new Map(guardados.map((p) => [p.mes, p]));
+
+    res.json(
+      Array.from({ length: 12 }, (_, i) => {
+        const mes = i + 1;
+        const guardado = porMes.get(mes);
+        return guardado
+          ? { ...guardado, guardado: true }
+          : { anio, mes, ...porDefecto(anio, mes), cerrado: false, fechaCierre: null, guardado: false };
+      })
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -30,7 +55,7 @@ export const guardarPeriodo = async (req, res) => {
   try {
     const anio = Number(req.params.anio);
     const mes = Number(req.params.mes);
-    const { desde, hasta } = req.body;
+    const { desde, hasta, cerrado, fechaCierre } = req.body;
 
     if (!desde || !hasta) {
       return res.status(400).json({ error: "Hay que indicar desde y hasta" });
@@ -39,9 +64,17 @@ export const guardarPeriodo = async (req, res) => {
       return res.status(400).json({ error: "La fecha de inicio no puede ser posterior a la de fin" });
     }
 
+    // cerrado/fechaCierre solo se tocan si vienen en el body; guardar el
+    // periodo desde la pantalla no debe reabrir un certificado ya cerrado.
+    const cambios = { anio, mes, desde: new Date(desde), hasta: new Date(hasta) };
+    if (cerrado !== undefined) {
+      cambios.cerrado = Boolean(cerrado);
+      cambios.fechaCierre = cerrado && fechaCierre ? new Date(fechaCierre) : null;
+    }
+
     const periodo = await PeriodoCertificado.findOneAndUpdate(
       { anio, mes },
-      { anio, mes, desde: new Date(desde), hasta: new Date(hasta) },
+      cambios,
       { new: true, upsert: true, runValidators: true }
     );
     res.json(periodo);

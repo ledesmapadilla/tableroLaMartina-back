@@ -39,6 +39,7 @@ export const create = async (req, res) => {
       cc: tractor.cc,
       equipo: "Tractor",
       descripcion: tractor.descripcion,
+      tractor: tractor._id,
     });
     res.status(201).json(tractor);
   } catch (error) {
@@ -66,6 +67,7 @@ export const update = async (req, res) => {
       cc: tractor.cc,
       equipo: "Tractor",
       descripcion: tractor.descripcion,
+      tractor: tractor._id,
     });
     res.json(tractor);
   } catch (error) {

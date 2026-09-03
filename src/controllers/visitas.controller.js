@@ -1,4 +1,5 @@
 import Visita from "../models/Visita.js";
+import { validarVisita } from "../services/horometros.service.js";
 
 export const listar = async (req, res) => {
   try {
@@ -13,6 +14,14 @@ export const listar = async (req, res) => {
 
 export const crear = async (req, res) => {
   try {
+    // La visita puede anotar el horómetro de varios tractores a la vez.
+    const chequeo = await validarVisita({
+      cc: req.body.cc,
+      horometro: req.body.horometro,
+      fecha: req.body.fecha,
+    });
+    if (!chequeo.ok) return res.status(409).json(chequeo);
+
     const visita = await Visita.create(req.body);
     res.status(201).json(visita);
   } catch (e) {

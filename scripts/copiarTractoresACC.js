@@ -31,8 +31,15 @@ for (const t of tractores) {
   });
 
   if (existe) {
+    // Puede venir de una corrida anterior, cuando el CC no guardaba el enlace.
+    if (!existe.tractor) {
+      existe.tractor = t._id;
+      await existe.save();
+      console.log(`  ↻ CC ${cc} ya estaba: se completó el enlace al tractor`);
+    } else {
+      console.log(`  · CC ${cc} ya estaba en el listado`);
+    }
     salteados++;
-    console.log(`  · CC ${cc} ya estaba en el listado`);
     continue;
   }
 
@@ -40,6 +47,7 @@ for (const t of tractores) {
     cc,
     equipo: "Tractor",
     descripcion: t.descripcion || "",
+    tractor: t._id,
   });
   creados++;
   console.log(`  ✓ CC ${cc} — ${t.descripcion || "sin descripción"}`);

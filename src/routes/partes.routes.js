@@ -1,9 +1,18 @@
 import { Router } from "express";
-import { getAll, getById, create, update, remove } from "../controllers/partes.controller.js";
+import {
+  getAll,
+  getById,
+  getUltimoHorometro,
+  create,
+  update,
+  remove,
+} from "../controllers/partes.controller.js";
 
 const router = Router();
 
 router.get("/", getAll);
+// Va antes de "/:id" para que no se la coma esa ruta.
+router.get("/ultimo-horometro/:cc", getUltimoHorometro);
 router.get("/:id", getById);
 router.post("/", create);
 router.put("/:id", update);

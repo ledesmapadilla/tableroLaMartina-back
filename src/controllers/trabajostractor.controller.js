@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import TrabajoTractor from "../models/TrabajoTractor.js";
 import Tractor from "../models/Tractor.js";
 import { registrarLecturaDeReparacion } from "./horometrostractor.controller.js";
+import { validarLectura } from "../services/horometros.service.js";
 
 export const getAll = async (req, res) => {
   try {
@@ -62,6 +63,13 @@ export const crear = async (req, res) => {
         req.body.tractor = found._id;
       }
     }
+    const chequeo = await validarLectura({
+      tractor: req.body.tractor,
+      fecha: req.body.fecha,
+      horometro: req.body.horometro,
+    });
+    if (!chequeo.ok) return res.status(409).json(chequeo);
+
     const trabajo = await TrabajoTractor.create(req.body);
     // La lectura queda tambien en el historial de horometros del tractor.
     await registrarLecturaDeReparacion(trabajo);
@@ -74,6 +82,17 @@ export const crear = async (req, res) => {
 
 export const actualizar = async (req, res) => {
   try {
+    if (req.body.horometro !== undefined) {
+      const previo = await TrabajoTractor.findById(req.params.id).select("tractor").lean();
+      const chequeo = await validarLectura({
+        tractor: req.body.tractor || previo?.tractor,
+        fecha: req.body.fecha,
+        horometro: req.body.horometro,
+        ignorarId: req.params.id,
+      });
+      if (!chequeo.ok) return res.status(409).json(chequeo);
+    }
+
     const trabajo = await TrabajoTractor.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
     if (!trabajo) return res.status(404).json({ error: "No encontrado" });
     // Si la edicion agrega o cambia el horometro, tambien va al historial.

@@ -35,12 +35,20 @@ const yaExiste = async (cc, ignorarId = null) => {
 // debe voltear el alta, la edicion o la baja que las llamó.
 
 // Alta. Idempotente: si el CC ya figura en el listado no se duplica.
-export const asegurarCentroCosto = async ({ cc, equipo = "", descripcion = "" }) => {
+export const asegurarCentroCosto = async ({ cc, equipo = "", descripcion = "", tractor = null }) => {
   try {
     const valor = (cc || "").trim();
     if (!valor) return null;
-    if (await yaExiste(valor)) return null;
-    return await CentroCosto.create({ cc: valor, equipo, descripcion });
+    // Ya existía: puede venir de la copia inicial, sin el enlace cargado.
+    const existente = await CentroCosto.findOne(filtroPorCC(valor));
+    if (existente) {
+      if (tractor && !existente.tractor) {
+        existente.tractor = tractor;
+        await existente.save();
+      }
+      return null;
+    }
+    return await CentroCosto.create({ cc: valor, equipo, descripcion, tractor });
   } catch (error) {
     console.error("No se pudo replicar el alta del CC:", error.message);
     return null;
@@ -50,7 +58,7 @@ export const asegurarCentroCosto = async ({ cc, equipo = "", descripcion = "" })
 // Edicion. Busca por el CC anterior porque la identificacion misma pudo haber
 // cambiado; si todavia no existia el CC (equipo dado de alta antes de esta
 // sincronizacion), lo crea.
-export const sincronizarCentroCosto = async ({ ccAnterior, cc, equipo = "", descripcion = "" }) => {
+export const sincronizarCentroCosto = async ({ ccAnterior, cc, equipo = "", descripcion = "", tractor = null }) => {
   try {
     const anterior = (ccAnterior || "").trim();
     const nuevo = (cc || "").trim();
@@ -58,12 +66,13 @@ export const sincronizarCentroCosto = async ({ ccAnterior, cc, equipo = "", desc
 
     const existente = anterior ? await CentroCosto.findOne(filtroPorCC(anterior)) : null;
     if (!existente) {
-      return await asegurarCentroCosto({ cc: nuevo, equipo, descripcion });
+      return await asegurarCentroCosto({ cc: nuevo, equipo, descripcion, tractor });
     }
 
     existente.cc = nuevo;
     existente.equipo = equipo;
     existente.descripcion = descripcion || "";
+    if (tractor) existente.tractor = tractor;
     return await existente.save();
   } catch (error) {
     console.error("No se pudo replicar la edición del CC:", error.message);

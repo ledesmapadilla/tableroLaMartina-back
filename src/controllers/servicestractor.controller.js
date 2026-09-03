@@ -4,6 +4,25 @@ import Tractor from "../models/Tractor.js";
 import Visita from "../models/Visita.js";
 import TrabajoTractor from "../models/TrabajoTractor.js";
 import HorometroTractor from "../models/HorometroTractor.js";
+import {
+  validarLectura,
+  mapaDeCambios,
+  acumularConCambios,
+} from "../services/horometros.service.js";
+
+// Le suma a cada service las horas acumuladas de los horómetros anteriores.
+// El preventivo tiene que comparar acumuladas contra acumuladas.
+const conAcumuladas = async (registros) => {
+  const cambios = await mapaDeCambios();
+  if (!cambios.size) {
+    return registros.map((r) => ({ ...r, acumuladas: r.horometro, numeroHorometro: 1 }));
+  }
+  return registros.map((r) => {
+    const id = String(r.tractor?._id || r.tractor || "");
+    const { acumuladas, numero } = acumularConCambios(cambios.get(id) || [], r.horometro, r.fecha);
+    return { ...r, acumuladas, numeroHorometro: numero };
+  });
+};
 
 export const getAll = async (req, res) => {
   try {
@@ -33,7 +52,7 @@ export const getUltimos = async (req, res) => {
       { $unwind: "$tractor" },
       { $sort: { "tractor.cc": 1 } },
     ]);
-    res.json(registros);
+    res.json(await conAcumuladas(registros));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -62,7 +81,7 @@ export const getUltimosPorAño = async (req, res) => {
       { $unwind: "$tractor" },
       { $sort: { "tractor.cc": 1 } },
     ]);
-    res.json(registros);
+    res.json(await conAcumuladas(registros));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -103,8 +122,9 @@ export const getHistorialPorTractor = async (req, res) => {
 
     const registros = await ServiceTractor.find(orConditions.length ? { $or: orConditions } : {})
       .populate("tractor", "cc descripcion supervisor gruppo")
-      .sort({ fecha: -1, createdAt: -1 });
-    res.json(registros);
+      .sort({ fecha: -1, createdAt: -1 })
+      .lean();
+    res.json(await conAcumuladas(registros));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -250,6 +270,36 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
       registrarHorometro(cc, h.horometro, fechaStr, origen, origen === "manual");
     });
 
+  // Horas reales de cada tractor. Mientras no haya cambios de horómetro
+  // cargados, `acumuladas` es igual al horómetro y `numero` es 1: el
+  // preventivo se comporta exactamente como antes.
+  const cambiosPorTractor = await mapaDeCambios();
+  if (cambiosPorTractor.size) {
+    const tractores = await Tractor.find().select("cc").lean();
+    const porCC = new Map();
+    for (const t of tractores) {
+      const clean = String(t.cc || "").replace(/^cc\s*/i, "").trim();
+      const cambios = cambiosPorTractor.get(String(t._id)) || [];
+      porCC.set(clean, cambios);
+      porCC.set(`CC ${clean}`, cambios);
+      porCC.set(String(t.cc || "").trim(), cambios);
+    }
+    for (const [clave, entry] of Object.entries(horometrosMap)) {
+      const { acumuladas, numero } = acumularConCambios(
+        porCC.get(clave) || [],
+        entry.horometro,
+        entry.fecha
+      );
+      entry.acumuladas = acumuladas;
+      entry.numeroHorometro = numero;
+    }
+  } else {
+    for (const entry of Object.values(horometrosMap)) {
+      entry.acumuladas = entry.horometro;
+      entry.numeroHorometro = 1;
+    }
+  }
+
   return horometrosMap;
 };
 
@@ -265,6 +315,15 @@ export const getUltimosHorometros = async (req, res) => {
 export const create = async (req, res) => {
   try {
     const tractorDoc = await Tractor.findById(req.body.tractor);
+
+    // Regla del horómetro: la pantalla resuelve el conflicto y reintenta.
+    const chequeo = await validarLectura({
+      tractor: req.body.tractor,
+      fecha: req.body.fecha,
+      horometro: req.body.horometro,
+    });
+    if (!chequeo.ok) return res.status(409).json(chequeo);
+
     const data = {
       ...req.body,
       cc: tractorDoc?.cc || req.body.cc,
@@ -283,6 +342,16 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
+    // Al editar, el propio registro no cuenta como lectura anterior.
+    const previo = await ServiceTractor.findById(req.params.id).select("tractor").lean();
+    const chequeo = await validarLectura({
+      tractor: req.body.tractor || previo?.tractor,
+      fecha: req.body.fecha,
+      horometro: req.body.horometro,
+      ignorarId: req.params.id,
+    });
+    if (!chequeo.ok) return res.status(409).json(chequeo);
+
     const updateData = { ...req.body };
     if (updateData.horometro !== undefined) updateData.horometro = Number(updateData.horometro);
     if (updateData.intervalo !== undefined) updateData.intervalo = Number(updateData.intervalo);

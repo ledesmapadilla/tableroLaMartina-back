@@ -17,6 +17,14 @@ const ParteDiarioSchema = new Schema(
     // que no se carga a mano.
     totalHoras: { type: Number, default: 0 },
 
+    // Horómetro de la máquina al entrar y salir del centro de costo. A
+    // diferencia de las horas del turno, acá no hay vuelta de reloj: el
+    // horómetro solo avanza.
+    horomIngreso: { type: Number, default: null },
+    horomSalida: { type: Number, default: null },
+    // Diferencia entre los dos horómetros. La calcula el backend.
+    horasCC: { type: Number, default: 0 },
+
     lote: { type: String, trim: true, default: "" },
     observacion: { type: String, trim: true, default: "" },
 
@@ -28,6 +36,8 @@ const ParteDiarioSchema = new Schema(
     combustible: { type: Number, default: null },
     // Algunos meses se usa y otros no.
     turbo: { type: String, trim: true, default: "" },
+    // Combustible cargado al turbo, aparte del de la máquina.
+    combTurbo: { type: Number, default: null },
   },
   { timestamps: true }
 );
