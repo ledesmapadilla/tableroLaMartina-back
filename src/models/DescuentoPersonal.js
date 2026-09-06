@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { campoEstablecimiento } from "./Establecimiento.js";
 
 // Lo que se le descuenta a una persona en la certificación de un mes: los
 // anticipos que ya cobró y la retención judicial que haya que practicarle.
@@ -9,6 +10,7 @@ import { Schema, model } from "mongoose";
 // cada uno para todo el mes.
 const DescuentoPersonalSchema = new Schema(
   {
+    establecimiento: campoEstablecimiento,
     persona: { type: Schema.Types.ObjectId, ref: "Personal", required: true },
     anio: { type: Number, required: true },
     mes: { type: Number, required: true, min: 1, max: 12 },
@@ -25,6 +27,9 @@ const DescuentoPersonalSchema = new Schema(
 );
 
 // Una sola fila por persona y mes: la pantalla la pisa cada vez que se edita.
-DescuentoPersonalSchema.index({ anio: 1, mes: 1, persona: 1 }, { unique: true });
+DescuentoPersonalSchema.index(
+  { establecimiento: 1, anio: 1, mes: 1, persona: 1 },
+  { unique: true }
+);
 
 export default model("DescuentoPersonal", DescuentoPersonalSchema);

@@ -1,10 +1,14 @@
 import { Schema, model } from "mongoose";
+import { campoEstablecimiento } from "./Establecimiento.js";
 
 // Un parte diario es una fila de la planilla mensual: una persona, un día, un
 // turno y UNA tarea con su cantidad. En el Excel las tareas eran 21 columnas,
 // pero nunca se usaba más de una por fila, así que acá van como un solo campo.
 const ParteDiarioSchema = new Schema(
   {
+    // En qué campo se trabajó. El personal, las tareas y los CC son de La
+    // Martina y se comparten; lo que separa a los dos campos es el parte.
+    establecimiento: campoEstablecimiento,
     fecha: { type: Date, required: true },
     persona: { type: Schema.Types.ObjectId, ref: "Personal", required: true },
     cc: { type: Schema.Types.ObjectId, ref: "CentroCosto" },
@@ -45,6 +49,7 @@ const ParteDiarioSchema = new Schema(
   { timestamps: true }
 );
 
-ParteDiarioSchema.index({ fecha: 1, persona: 1 });
+// Los partes se piden siempre por establecimiento y rango de fechas.
+ParteDiarioSchema.index({ establecimiento: 1, fecha: 1, persona: 1 });
 
 export default model("ParteDiario", ParteDiarioSchema);

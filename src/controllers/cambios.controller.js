@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 import CambioCertificacion, { CAMPOS } from "../models/CambioCertificacion.js";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+
+// El establecimiento llega por query o en el cuerpo. Sin el se asume
+// Caspinchango, que es el unico que existia antes de separar los campos.
+const clave = (valor) => {
+  const c = (valor || "").trim();
+  return CLAVES.includes(c) ? c : POR_DEFECTO;
+};
+
 
 const RELACIONES = [
   { path: "persona", select: "apellidoNombre legajo" },
@@ -17,7 +26,11 @@ const aNumero = (valor) => {
 export const getDelPeriodo = async (req, res) => {
   try {
     const { anio, mes } = req.params;
-    const cambios = await CambioCertificacion.find({ anio: Number(anio), mes: Number(mes) })
+    const cambios = await CambioCertificacion.find({
+      establecimiento: clave(req.query.establecimiento),
+      anio: Number(anio),
+      mes: Number(mes),
+    })
       .populate(RELACIONES)
       .sort({ createdAt: -1 });
     res.json(cambios);
@@ -35,6 +48,7 @@ export const getDelPeriodo = async (req, res) => {
 export const create = async (req, res) => {
   try {
     const { persona, tarea, cliente, anio, mes, campo, anterior, nuevo, detalle } = req.body;
+    const establecimiento = clave(req.body.establecimiento);
 
     if (!mongoose.isValidObjectId(persona)) {
       return res.status(400).json({ error: "Persona inválida" });
@@ -55,6 +69,7 @@ export const create = async (req, res) => {
     }
 
     const cambio = new CambioCertificacion({
+      establecimiento,
       persona,
       tarea,
       cliente: (cliente || "").trim(),

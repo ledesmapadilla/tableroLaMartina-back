@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 import DescuentoPersonal from "../models/DescuentoPersonal.js";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+
+// El establecimiento llega por query o en el cuerpo. Sin el se asume
+// Caspinchango, que es el unico que existia antes de separar los campos.
+const clave = (valor) => {
+  const c = (valor || "").trim();
+  return CLAVES.includes(c) ? c : POR_DEFECTO;
+};
+
 
 // Los montos llegan del formulario: vacío es cero, no null, porque acá un
 // descuento sin cargar y uno de cero valen lo mismo.
@@ -15,6 +24,7 @@ export const getDelPeriodo = async (req, res) => {
   try {
     const { anio, mes } = req.params;
     const descuentos = await DescuentoPersonal.find({
+      establecimiento: clave(req.query.establecimiento),
       anio: Number(anio),
       mes: Number(mes),
     });
@@ -48,7 +58,7 @@ export const guardar = async (req, res) => {
     }
 
     const descuento = await DescuentoPersonal.findOneAndUpdate(
-      { anio: Number(anio), mes: Number(mes), persona },
+      { establecimiento: clave(req.query.establecimiento), anio: Number(anio), mes: Number(mes), persona },
       { $set: cambios },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );

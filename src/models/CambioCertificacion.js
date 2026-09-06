@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { campoEstablecimiento } from "./Establecimiento.js";
 
 // Lo único que se puede corregir desde el informe: el precio con el que se
 // certifica el renglón y la cantidad total de la tarea. El resto del parte se
@@ -17,6 +18,7 @@ export const CAMPOS = ["cantidad", "precioUnitario"];
  */
 const CambioCertificacionSchema = new Schema(
   {
+    establecimiento: campoEstablecimiento,
     persona: { type: Schema.Types.ObjectId, ref: "Personal", required: true },
     tarea: { type: Schema.Types.ObjectId, ref: "Tarea", required: true },
     // El renglón del informe es por cliente: la misma persona puede hacer la
@@ -40,6 +42,13 @@ const CambioCertificacionSchema = new Schema(
 );
 
 // El historial se lee siempre por renglón, del cambio más nuevo al más viejo.
-CambioCertificacionSchema.index({ anio: 1, mes: 1, persona: 1, tarea: 1, createdAt: -1 });
+CambioCertificacionSchema.index({
+  establecimiento: 1,
+  anio: 1,
+  mes: 1,
+  persona: 1,
+  tarea: 1,
+  createdAt: -1,
+});
 
 export default model("CambioCertificacion", CambioCertificacionSchema);

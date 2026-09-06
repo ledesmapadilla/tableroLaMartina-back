@@ -11,7 +11,8 @@
     "copiar-tractores-cc": "node --env-file .env scripts/copiarTractoresACC.js",
     "copiar-camionetas-cc": "node --env-file .env scripts/copiarCamionetasACC.js",
     "cargar-personal": "node --env-file .env scripts/cargarPersonalInicial.js",
-    "completar-cliente-partes": "node --env-file .env scripts/completarClienteDePartes.js"
+    "completar-cliente-partes": "node --env-file .env scripts/completarClienteDePartes.js",
+    "separar-establecimientos": "node --env-file .env scripts/separarEstablecimientos.js"
   },
   "type": "module",
   "keywords": [],

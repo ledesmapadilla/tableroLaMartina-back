@@ -1,4 +1,13 @@
 import PeriodoCertificado from "../models/PeriodoCertificado.js";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+
+// El establecimiento llega por query. Sin el se asume Caspinchango, que es el
+// unico que existia antes de separar los campos: asi los links viejos y las
+// pantallas que todavia no lo mandan siguen andando.
+const delRequest = (req) => {
+  const clave = (req.query.establecimiento || "").trim();
+  return CLAVES.includes(clave) ? clave : POR_DEFECTO;
+};
 
 const UN_DIA = 24 * 60 * 60 * 1000;
 
@@ -32,7 +41,11 @@ const correrArranqueDelSiguiente = async (periodo) => {
   if (!periodo?.cerrado) return;
 
   const { anio, mes } = mesSiguiente(periodo.anio, periodo.mes);
-  const siguiente = await PeriodoCertificado.findOne({ anio, mes });
+  const siguiente = await PeriodoCertificado.findOne({
+    establecimiento: periodo.establecimiento,
+    anio,
+    mes,
+  });
   if (!siguiente || siguiente.cerrado) return;
 
   const desde = diaSiguiente(periodo.hasta);
@@ -52,14 +65,16 @@ export const getPeriodo = async (req, res) => {
       return res.status(400).json({ error: "Año o mes inválido" });
     }
 
-    const guardado = await PeriodoCertificado.findOne({ anio, mes });
+    const establecimiento = delRequest(req);
+    const guardado = await PeriodoCertificado.findOne({ establecimiento, anio, mes });
     if (guardado) return res.json(guardado);
 
     // No se crea nada todavía: se devuelve el corte sugerido, que arranca donde
     // terminó el mes anterior.
     const previo = mesAnterior(anio, mes);
-    const anterior = await PeriodoCertificado.findOne(previo).lean();
+    const anterior = await PeriodoCertificado.findOne({ establecimiento, ...previo }).lean();
     res.json({
+      establecimiento,
       anio,
       mes,
       ...sugerido(anio, mes, anterior),
@@ -80,11 +95,16 @@ export const getPeriodosDelAnio = async (req, res) => {
     const anio = Number(req.params.anio);
     if (!anio) return res.status(400).json({ error: "Año inválido" });
 
-    const guardados = await PeriodoCertificado.find({ anio }).lean();
+    const establecimiento = delRequest(req);
+    const guardados = await PeriodoCertificado.find({ establecimiento, anio }).lean();
     const porMes = new Map(guardados.map((p) => [p.mes, p]));
     // Enero arranca donde cerró diciembre del año anterior, así que ese mes
     // también entra en la consulta.
-    const diciembrePrevio = await PeriodoCertificado.findOne({ anio: anio - 1, mes: 12 }).lean();
+    const diciembrePrevio = await PeriodoCertificado.findOne({
+      establecimiento,
+      anio: anio - 1,
+      mes: 12,
+    }).lean();
 
     // Los meses se recorren en orden porque cada uno mira el cierre del que
     // tiene atrás.
@@ -95,6 +115,7 @@ export const getPeriodosDelAnio = async (req, res) => {
       const periodo = guardado
         ? { ...guardado, guardado: true }
         : {
+            establecimiento,
             anio,
             mes,
             ...sugerido(anio, mes, anterior),
@@ -127,14 +148,15 @@ export const guardarPeriodo = async (req, res) => {
 
     // cerrado/fechaCierre solo se tocan si vienen en el body; guardar el
     // periodo desde la pantalla no debe reabrir un certificado ya cerrado.
-    const cambios = { anio, mes, desde: new Date(desde), hasta: new Date(hasta) };
+    const establecimiento = delRequest(req);
+    const cambios = { establecimiento, anio, mes, desde: new Date(desde), hasta: new Date(hasta) };
     if (cerrado !== undefined) {
       cambios.cerrado = Boolean(cerrado);
       cambios.fechaCierre = cerrado && fechaCierre ? new Date(fechaCierre) : null;
     }
 
     const periodo = await PeriodoCertificado.findOneAndUpdate(
-      { anio, mes },
+      { establecimiento, anio, mes },
       cambios,
       { new: true, upsert: true, runValidators: true }
     );

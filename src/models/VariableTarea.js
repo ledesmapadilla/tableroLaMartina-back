@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { campoEstablecimiento } from "./Establecimiento.js";
 
 // Los valores con los que se certifica cada tarea, por cliente. Cada carga es
 // una fila: el precio vigente de una tarea es el de la última vigencia y las
@@ -7,6 +8,8 @@ import { Schema, model } from "mongoose";
 // tiempo.
 const VariableTareaSchema = new Schema(
   {
+    // La misma tarea puede valer distinto en cada campo.
+    establecimiento: campoEstablecimiento,
     tarea: { type: Schema.Types.ObjectId, ref: "Tarea", required: true },
     // A quién se le certifica ese precio. Texto libre, igual que en el parte:
     // no hay padrón de clientes, salen de lo que se carga en la planilla.
@@ -30,6 +33,6 @@ const VariableTareaSchema = new Schema(
 
 // El historial se lee siempre por tarea y cliente, de la vigencia más nueva a
 // la más vieja.
-VariableTareaSchema.index({ tarea: 1, cliente: 1, vigenciaDesde: -1 });
+VariableTareaSchema.index({ establecimiento: 1, tarea: 1, cliente: 1, vigenciaDesde: -1 });
 
 export default model("VariableTarea", VariableTareaSchema);

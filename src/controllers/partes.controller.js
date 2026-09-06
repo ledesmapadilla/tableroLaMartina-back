@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
 import ParteDiario from "../models/ParteDiario.js";
 import {
   registrarLecturaDeParte,
@@ -98,8 +99,15 @@ const buscarCentroDelParte = async (cc) => {
   return { ok: Boolean(centro), centro };
 };
 
+// El establecimiento llega por query o en el cuerpo. Sin el se asume
+// Caspinchango, que es el unico que existia antes de separar los campos.
+const clave = (valor) => {
+  const c = (valor || "").trim();
+  return CLAVES.includes(c) ? c : POR_DEFECTO;
+};
+
 const armarDatos = (body) => {
-  const datos = { ...body };
+  const datos = { ...body, establecimiento: clave(body.establecimiento) };
   datos.totalHoras = calcularTotalHoras(body.horaIngreso, body.horaEgreso);
   datos.horasCC = calcularHorasCC(body.horomIngreso, body.horomSalida);
   // Los numéricos vacíos llegan como "" desde el formulario.
@@ -127,7 +135,7 @@ const conRelaciones = (consulta) => consulta.populate(RELACIONES);
 export const getAll = async (req, res) => {
   try {
     const { desde, hasta, anio, mes } = req.query;
-    const filtro = {};
+    const filtro = { establecimiento: clave(req.query.establecimiento) };
 
     if (desde || hasta) {
       filtro.fecha = {};
@@ -193,7 +201,9 @@ export const getUltimoHorometro = async (req, res) => {
 // clientes se les puede poner precio.
 export const getClientes = async (req, res) => {
   try {
-    const clientes = await ParteDiario.distinct("cliente");
+    const clientes = await ParteDiario.distinct("cliente", {
+      establecimiento: clave(req.query.establecimiento),
+    });
     res.json(clientes.filter((c) => (c || "").trim()).sort((a, b) => a.localeCompare(b, "es")));
   } catch (error) {
     res.status(500).json({ error: error.message });

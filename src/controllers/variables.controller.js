@@ -1,6 +1,15 @@
 import mongoose from "mongoose";
 import VariableTarea from "../models/VariableTarea.js";
 import Tarea from "../models/Tarea.js";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+
+// El establecimiento llega por query o en el cuerpo. Sin el se asume
+// Caspinchango, que es el unico que existia antes de separar los campos.
+const clave = (valor) => {
+  const c = (valor || "").trim();
+  return CLAVES.includes(c) ? c : POR_DEFECTO;
+};
+
 
 const RELACIONES = { path: "tarea", select: "tarea unidad empresa" };
 
@@ -51,7 +60,9 @@ const queFalta = (datos) => {
 // las de uno.
 export const getAll = async (req, res) => {
   try {
-    const filtro = {};
+    // Los precios son por establecimiento: la misma tarea puede valer
+    // distinto en cada campo.
+    const filtro = { establecimiento: clave(req.query.establecimiento) };
     if (req.query.cliente) filtro.cliente = req.query.cliente;
 
     const variables = await VariableTarea.find(filtro)
@@ -70,7 +81,9 @@ export const getAll = async (req, res) => {
 // los suma a los que vienen de los partes.
 export const getClientes = async (req, res) => {
   try {
-    const clientes = await VariableTarea.distinct("cliente");
+    const clientes = await VariableTarea.distinct("cliente", {
+      establecimiento: clave(req.query.establecimiento),
+    });
     res.json(clientes.filter((c) => (c || "").trim()).sort((a, b) => a.localeCompare(b, "es")));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -93,7 +106,11 @@ export const create = async (req, res) => {
     const error = queFalta(datos);
     if (error) return res.status(400).json({ error });
 
-    const variable = new VariableTarea({ tarea, ...datos });
+    const variable = new VariableTarea({
+      establecimiento: clave(req.body.establecimiento),
+      tarea,
+      ...datos,
+    });
     await variable.save();
     res.status(201).json(await variable.populate(RELACIONES));
   } catch (error) {
