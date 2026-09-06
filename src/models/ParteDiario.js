@@ -8,6 +8,9 @@ const ParteDiarioSchema = new Schema(
     fecha: { type: Date, required: true },
     persona: { type: Schema.Types.ObjectId, ref: "Personal", required: true },
     cc: { type: Schema.Types.ObjectId, ref: "CentroCosto" },
+    // A quién se le factura el trabajo. Va como texto libre, igual que el
+    // lote: no hay padrón de clientes y los partes viejos no tienen ninguno.
+    cliente: { type: String, trim: true, default: "" },
 
     // Los horarios se guardan como "HH:mm": son la hora del reloj, no un
     // instante, y el turno puede cruzar la medianoche (22:00 → 06:00).

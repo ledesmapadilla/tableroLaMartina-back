@@ -13,13 +13,24 @@ const capitalizar = (valor) =>
     .toLowerCase()
     .replace(/(^|[\s,.\-])(\p{L})/gu, (m, separador, letra) => separador + letra.toUpperCase());
 
-// El DNI identifica a la persona: es obligatorio y no se permite repetirlo.
-const dniRepetido = async (dni, ignorarId = null) => {
-  const valor = (dni || "").trim();
-  if (!valor) return false;
-  const filtro = { dni: new RegExp(`^${escapar(valor)}$`, "i") };
+// El DNI y el legajo pueden venir vacíos, pero si se cargan no se pueden
+// repetir: los dos identifican a la persona y dos filas con el mismo número
+// serían la misma persona cargada dos veces.
+const repetido = async (campo, valor, ignorarId = null) => {
+  const texto = (valor || "").trim();
+  if (!texto) return false;
+  const filtro = { [campo]: new RegExp(`^${escapar(texto)}$`, "i") };
   if (ignorarId) filtro._id = { $ne: ignorarId };
   return !!(await Personal.findOne(filtro));
+};
+
+// Devuelve el error a mostrar, o null si el DNI y el legajo están libres.
+const queSeRepite = async (body, ignorarId = null) => {
+  if (await repetido("dni", body.dni, ignorarId)) return "Ya existe una persona con ese DNI";
+  if (await repetido("legajo", body.legajo, ignorarId)) {
+    return "Ya existe una persona con ese legajo";
+  }
+  return null;
 };
 
 export const getAll = async (req, res) => {
@@ -43,12 +54,9 @@ export const getById = async (req, res) => {
 
 export const create = async (req, res) => {
   try {
-    if (!(req.body.dni || "").trim()) {
-      return res.status(400).json({ error: "El DNI es obligatorio" });
-    }
-    if (await dniRepetido(req.body.dni)) {
-      return res.status(400).json({ error: "Ya existe una persona con ese DNI" });
-    }
+    const repetido = await queSeRepite(req.body);
+    if (repetido) return res.status(400).json({ error: repetido });
+
     const persona = new Personal({ ...req.body, apellidoNombre: capitalizar(req.body.apellidoNombre) });
     await persona.save();
     res.status(201).json(persona);
@@ -59,12 +67,9 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
-    if (!(req.body.dni || "").trim()) {
-      return res.status(400).json({ error: "El DNI es obligatorio" });
-    }
-    if (await dniRepetido(req.body.dni, req.params.id)) {
-      return res.status(400).json({ error: "Ya existe una persona con ese DNI" });
-    }
+    const repetido = await queSeRepite(req.body, req.params.id);
+    if (repetido) return res.status(400).json({ error: repetido });
+
     const persona = await Personal.findByIdAndUpdate(
       req.params.id,
       { ...req.body, apellidoNombre: capitalizar(req.body.apellidoNombre) },

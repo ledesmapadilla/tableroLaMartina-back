@@ -23,6 +23,9 @@ import personalRouter from "./personal.routes.js";
 import tareasRouter from "./tareas.routes.js";
 import partesRouter from "./partes.routes.js";
 import periodosRouter from "./periodos.routes.js";
+import variablesRouter from "./variables.routes.js";
+import descuentosRouter from "./descuentos.routes.js";
+import cambiosRouter from "./cambios.routes.js";
 
 const router = Router();
 
@@ -51,5 +54,8 @@ router.use("/personal", personalRouter);
 router.use("/tareas", tareasRouter);
 router.use("/partes", partesRouter);
 router.use("/periodos", periodosRouter);
+router.use("/variables", variablesRouter);
+router.use("/descuentos", descuentosRouter);
+router.use("/cambios", cambiosRouter);
 
 export default router;

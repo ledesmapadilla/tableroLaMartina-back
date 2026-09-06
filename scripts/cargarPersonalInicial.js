@@ -1,9 +1,8 @@
 /**
  * Carga inicial del personal de Producción, tomada de la planilla de tareas.
  *
- * Los nombres vienen sin DNI: se insertan directo con el driver, salteando la
- * validación de Mongoose, porque en la app el DNI es obligatorio. Al editar
- * cualquiera de estas personas desde la pantalla habrá que completarlo.
+ * Los nombres vienen sin DNI ni legajo, que no son obligatorios: quedan vacíos
+ * y se completan después desde la pantalla.
  *
  * Es idempotente: los nombres que ya están en el listado se saltean.
  *
@@ -62,10 +61,10 @@ for (const apellidoNombre of nombres) {
     continue;
   }
 
-  // insertOne del driver: no pasa por el required del schema.
   await Personal.collection.insertOne({
     apellidoNombre,
     dni: "",
+    legajo: "",
     createdAt: ahora,
     updatedAt: ahora,
   });

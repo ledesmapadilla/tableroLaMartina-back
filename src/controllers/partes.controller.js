@@ -77,6 +77,9 @@ const faltantes = (body) => {
   if (!body.fecha) falta.push("la fecha");
   if (!body.persona) falta.push("la persona");
   if (!body.tarea) falta.push("la tarea");
+  // El cliente decide con qué precio se certifica la tarea (los precios de
+  // Variables son por cliente): sin él, el parte no se puede valorizar.
+  if (!(body.cliente || "").trim()) falta.push("el cliente");
   if (body.cantidad === "" || body.cantidad === null || body.cantidad === undefined) {
     falta.push("la cantidad");
   } else if (isNaN(Number(body.cantidad))) {
@@ -112,7 +115,7 @@ const armarDatos = (body) => {
 };
 
 const RELACIONES = [
-  { path: "persona", select: "apellidoNombre dni" },
+  { path: "persona", select: "apellidoNombre dni legajo" },
   { path: "cc", select: "cc equipo descripcion" },
   { path: "tarea", select: "tarea unidad empresa" },
 ];
@@ -137,7 +140,22 @@ export const getAll = async (req, res) => {
       };
     }
 
-    const partes = await conRelaciones(ParteDiario.find(filtro)).sort({ fecha: 1, createdAt: 1 });
+    // El informe de tareas por personal solo suma cantidades y filtra: no le
+    // sirven los horarios, los horómetros ni el combustible. Con ?resumen=1 se
+    // le manda lo justo, que es la mitad del cuerpo y sin hidratar documentos.
+    const consulta = ParteDiario.find(filtro).sort({ fecha: 1, createdAt: 1 });
+    const partes =
+      req.query.resumen === "1"
+        ? await consulta
+            .select("fecha persona tarea cantidad cliente turbo cc")
+            .populate([
+              { path: "persona", select: "apellidoNombre legajo" },
+              { path: "cc", select: "cc" },
+              { path: "tarea", select: "tarea unidad" },
+            ])
+            .lean()
+        : await conRelaciones(consulta);
+
     res.json(partes);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -162,6 +180,18 @@ export const getUltimoHorometro = async (req, res) => {
 
     if (!ultimo) return res.json({ cc, horomSalida: null, fecha: null });
     res.json({ cc, horomSalida: ultimo.horomSalida, fecha: ultimo.fecha });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Los clientes que se escribieron en la planilla. No hay padrón: el listado
+// sale de lo cargado, y lo usa la pantalla de Variables para saber a qué
+// clientes se les puede poner precio.
+export const getClientes = async (req, res) => {
+  try {
+    const clientes = await ParteDiario.distinct("cliente");
+    res.json(clientes.filter((c) => (c || "").trim()).sort((a, b) => a.localeCompare(b, "es")));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

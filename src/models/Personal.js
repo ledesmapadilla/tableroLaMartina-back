@@ -5,7 +5,10 @@ import { Schema, model } from "mongoose";
 const PersonalSchema = new Schema(
   {
     apellidoNombre: { type: String, required: true, trim: true },
-    dni: { type: String, required: true, trim: true },
+    // El DNI y el legajo son datos de referencia: hay gente que se carga sin
+    // tenerlos a mano, así que ninguno de los dos es obligatorio.
+    dni: { type: String, trim: true, default: "" },
+    legajo: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );
