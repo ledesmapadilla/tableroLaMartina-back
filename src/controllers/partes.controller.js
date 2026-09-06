@@ -143,7 +143,10 @@ export const getAll = async (req, res) => {
     // El informe de tareas por personal solo suma cantidades y filtra: no le
     // sirven los horarios, los horómetros ni el combustible. Con ?resumen=1 se
     // le manda lo justo, que es la mitad del cuerpo y sin hidratar documentos.
-    const consulta = ParteDiario.find(filtro).sort({ fecha: 1, createdAt: 1 });
+    // batchSize alto: el cursor trae de a 101 documentos por defecto, así que
+    // un mes de partes son dos idas y vueltas al cluster en vez de una. Con la
+    // latencia que hay (unos 70 ms por viaje) eso solo costaba ~90 ms.
+    const consulta = ParteDiario.find(filtro).sort({ fecha: 1, createdAt: 1 }).batchSize(1000);
     const partes =
       req.query.resumen === "1"
         ? await consulta
