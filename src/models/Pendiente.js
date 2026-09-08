@@ -15,6 +15,9 @@ const PendienteSchema = new Schema(
     fecha:         { type: String, required: true, trim: true },
     sector:        { type: String, required: true, trim: true },
     responsable:   { type: String, trim: true, default: "" },
+    // Pendiente / En curso / Terminada. Lo que se cargó antes de que el estado
+    // existiera no lo trae: en pantalla se lee como "Pendiente".
+    estado:        { type: String, trim: true, default: "Pendiente" },
     observaciones: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
