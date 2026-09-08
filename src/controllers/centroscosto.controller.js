@@ -130,24 +130,52 @@ export const create = async (req, res) => {
   }
 };
 
+// Los campos que mantiene Compras. Se pueden editar en cualquier CC, también
+// en un tractor o una camioneta: el grupo y la marca son datos de compras, no
+// del equipo, y esas pantallas no los cargan.
+const CAMPOS_COMPRAS = ["grupo", "marca", "observaciones"];
+
+// Los que describen al equipo. En los CC que manda otra pantalla (Tractores,
+// Camionetas) no se tocan desde acá.
+const CAMPOS_EQUIPO = ["cc", "equipo", "descripcion", "tractor"];
+
 export const update = async (req, res) => {
   try {
     const actual = await CentroCosto.findById(req.params.id);
     if (!actual) return res.status(404).json({ error: "CC no encontrado" });
 
-    // Ni los CC que ya vienen de otra pantalla se editan acá, ni se puede
-    // convertir un CC propio en uno de esos equipos.
-    if (esGestionado(actual.equipo)) {
-      return res.status(400).json({ error: avisoGestionado(actual.equipo) });
-    }
-    if (esGestionado(req.body.equipo)) {
-      return res.status(400).json({ error: avisoGestionado(req.body.equipo) });
-    }
-    if (await yaExiste(req.body.cc, req.params.id)) {
-      return res.status(400).json({ error: "Ya existe un CC con ese código" });
+    const cambios = {};
+    for (const campo of CAMPOS_COMPRAS) {
+      if (campo in req.body) cambios[campo] = req.body[campo];
     }
 
-    const centro = await CentroCosto.findByIdAndUpdate(req.params.id, req.body, {
+    // Un CC que viene de otra pantalla conserva ahí su identificación y su
+    // descripción; acá solo se le completan los datos de compras.
+    const tocaEquipo = CAMPOS_EQUIPO.some((campo) => campo in req.body);
+    if (esGestionado(actual.equipo)) {
+      if (tocaEquipo) {
+        // Se avisa solo si de verdad se intentó cambiar algo del equipo: la
+        // pantalla de Compras manda el CC entero y no tendría por qué fallar.
+        const cambiaAlgo = CAMPOS_EQUIPO.some(
+          (campo) => campo in req.body && String(req.body[campo] ?? "") !== String(actual[campo] ?? "")
+        );
+        if (cambiaAlgo) {
+          return res.status(400).json({ error: avisoGestionado(actual.equipo) });
+        }
+      }
+    } else {
+      if (esGestionado(req.body.equipo)) {
+        return res.status(400).json({ error: avisoGestionado(req.body.equipo) });
+      }
+      if ("cc" in req.body && (await yaExiste(req.body.cc, req.params.id))) {
+        return res.status(400).json({ error: "Ya existe un CC con ese código" });
+      }
+      for (const campo of CAMPOS_EQUIPO) {
+        if (campo in req.body) cambios[campo] = req.body[campo];
+      }
+    }
+
+    const centro = await CentroCosto.findByIdAndUpdate(req.params.id, cambios, {
       new: true,
       runValidators: true,
     });

@@ -27,9 +27,48 @@ import variablesRouter from "./variables.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 
+// Compras. Se unifico con el Tablero el 06/09/2026: comparten base, padron de
+// centros de costo y, mas adelante, login. Ninguna de estas rutas choca con
+// las de arriba; los centros de costo son la unica ruta comun y la sirve el
+// controlador del Tablero, que ya maneja el padron unificado.
+import authRouter from "./auth.routes.js";
+import usuariosRouter from "./usuario.routes.js";
+import proveedoresRouter from "./proveedor.routes.js";
+import berdinaPedidosRouter from "./berdinaPedido.routes.js";
+import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
+import ocRouter from "./oc.routes.js";
+import { verificarToken } from "../middleware/auth.js";
+
 const router = Router();
 
 router.get("/", (req, res) => res.json({ message: "API funcionando" }));
+
+/**
+ * Todo pide token menos lo que este listado aca.
+ *
+ * Va antes de montar los routers, asi una ruta nueva queda protegida sola sin
+ * que nadie tenga que acordarse.
+ *
+ *  - /auth      el login.
+ *  - /visitas   la vista del celular de la entrada: la usa quien controla el
+ *               ingreso, que no tiene usuario.
+ *  - GET /tractores  de ahi saca Visitas las patentes. Solo lectura: crear o
+ *               editar un tractor sigue pidiendo token.
+ *  - /cron      lo llama Vercel todos los dias a las 11; no hay nadie que
+ *               inicie sesion del otro lado.
+ */
+const ES_PUBLICO = [
+  (req) => req.path.startsWith("/auth"),
+  (req) => req.path.startsWith("/visitas"),
+  (req) => req.method === "GET" && req.path === "/tractores",
+  (req) => req.path.startsWith("/cron"),
+];
+
+router.use((req, res, next) =>
+  ES_PUBLICO.some((esPublico) => esPublico(req)) ? next() : verificarToken(req, res, next)
+);
+
+router.use("/auth", authRouter);
 router.use("/camionetas", camionetasRouter);
 router.use("/tractores", tractoresRouter);
 router.use("/colectivos", colectivosRouter);
@@ -57,5 +96,12 @@ router.use("/periodos", periodosRouter);
 router.use("/variables", variablesRouter);
 router.use("/descuentos", descuentosRouter);
 router.use("/cambios", cambiosRouter);
+
+// ── Compras ──
+router.use("/usuarios", usuariosRouter);
+router.use("/proveedores", proveedoresRouter);
+router.use("/berdina/pedidos", berdinaPedidosRouter);
+router.use("/sanpablo/pedidos", sanPabloPedidosRouter);
+router.use("/oc", ocRouter);
 
 export default router;
