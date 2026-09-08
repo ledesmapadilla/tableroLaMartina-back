@@ -26,6 +26,7 @@ import periodosRouter from "./periodos.routes.js";
 import variablesRouter from "./variables.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
+import pendientesRouter from "./pendientes.routes.js";
 
 // Compras. Se unifico con el Tablero el 06/09/2026: comparten base, padron de
 // centros de costo y, mas adelante, login. Ninguna de estas rutas choca con
@@ -96,6 +97,7 @@ router.use("/periodos", periodosRouter);
 router.use("/variables", variablesRouter);
 router.use("/descuentos", descuentosRouter);
 router.use("/cambios", cambiosRouter);
+router.use("/pendientes", pendientesRouter);
 
 // ── Compras ──
 router.use("/usuarios", usuariosRouter);
