@@ -4,12 +4,21 @@ import Tractor from "../models/Tractor.js";
 import { registrarLecturaDeReparacion } from "./horometrostractor.controller.js";
 import { validarLectura } from "../services/horometros.service.js";
 
+// Igual que en tractores.controller: el grupo 8 es la maquina fuera de
+// circulacion y no va en ninguna planilla.
+const GRUPPO_EN_DESUSO = 8;
+
+/**
+ * El listado general alimenta las planillas (resumen de reparaciones y
+ * preventivo), asi que deja afuera lo de las maquinas en desuso. El historial
+ * de una maquina puntual sigue completo: lo sirve `getPorTractor`.
+ */
 export const getAll = async (req, res) => {
   try {
     const trabajos = await TrabajoTractor.find()
       .populate("tractor", "cc descripcion supervisor encargadoGral gruppo")
       .sort({ fecha: -1 });
-    res.json(trabajos);
+    res.json(trabajos.filter((t) => t.tractor?.gruppo !== GRUPPO_EN_DESUSO));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

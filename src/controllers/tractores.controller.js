@@ -10,9 +10,20 @@ import {
   eliminarCentroCosto,
 } from "./centroscosto.controller.js";
 
+// Grupo de la maquina que salio de circulacion. No se lista en ningun lado:
+// solo el alta la muestra, para poder volver a asignarla o consultarla.
+const GRUPPO_EN_DESUSO = 8;
+
+/**
+ * Por defecto quedan afuera las maquinas en desuso: se filtra aca, en el unico
+ * lugar del que salen los tractores, para que ninguna planilla tenga que
+ * acordarse de excluirlas. El alta pide `?incluirDesuso=1` y las recibe.
+ */
 export const getAll = async (req, res) => {
   try {
-    const tractores = await Tractor.find().sort({ gruppo: 1, supervisor: 1, cc: 1 });
+    const incluirDesuso = req.query.incluirDesuso === "1";
+    const filtro = incluirDesuso ? {} : { gruppo: { $ne: GRUPPO_EN_DESUSO } };
+    const tractores = await Tractor.find(filtro).sort({ gruppo: 1, supervisor: 1, cc: 1 });
     res.json(tractores);
   } catch (error) {
     res.status(500).json({ error: error.message });
