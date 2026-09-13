@@ -10,6 +10,7 @@ import {
   validarLectura,
   contextoDeHorometro,
   parsearHorometro,
+  calcularHorasCC,
 } from "../services/horometros.service.js";
 
 // El horómetro del parte es el del tractor: solo se valida si el CC lo es.
@@ -64,15 +65,6 @@ const calcularTotalHoras = (horaIngreso, horaEgreso) => {
   return Math.round((minutos / 60) * 100) / 100;
 };
 
-// Horas de la máquina en el centro de costo. El horómetro solo avanza, así
-// que una salida menor que el ingreso es un error de carga: se deja en 0.
-const calcularHorasCC = (ingreso, salida) => {
-  const i = Number(ingreso);
-  const s = Number(salida);
-  if (!Number.isFinite(i) || !Number.isFinite(s) || s <= i) return 0;
-  return Math.round((s - i) * 100) / 100;
-};
-
 const faltantes = (body) => {
   const falta = [];
   if (!body.fecha) falta.push("la fecha");
@@ -106,6 +98,9 @@ const clave = (valor) => {
   return CLAVES.includes(c) ? c : POR_DEFECTO;
 };
 
+// "2026-08": el certificado de un mes.
+const CLAVE_PERIODO = /^\d{4}-\d{2}$/;
+
 const armarDatos = (body) => {
   const datos = { ...body, establecimiento: clave(body.establecimiento) };
   datos.totalHoras = calcularTotalHoras(body.horaIngreso, body.horaEgreso);
@@ -119,6 +114,10 @@ const armarDatos = (body) => {
   ["cc", "tarea"].forEach((campo) => {
     if (!body[campo]) datos[campo] = null;
   });
+  // Mes al que quedó asignado un parte con fecha posterior al cierre. Sin
+  // periodo el parte va por fecha y no guarda explicación.
+  datos.periodo = CLAVE_PERIODO.test(String(body.periodo || "")) ? body.periodo : null;
+  datos.motivoFueraDeCierre = datos.periodo ? String(body.motivoFueraDeCierre || "").trim() : "";
   return datos;
 };
 
@@ -146,6 +145,16 @@ export const getAll = async (req, res) => {
         $gte: new Date(Date.UTC(Number(anio), Number(mes) - 1, 1)),
         $lte: new Date(Date.UTC(Number(anio), Number(mes), 0, 23, 59, 59)),
       };
+    }
+
+    // Certificado de un mes (?periodo=2026-08): además del rango van los partes
+    // con fecha posterior al cierre que se dejaron en este mes con una
+    // explicación, y salen los del rango que quedaron asignados a otro mes.
+    const { periodo } = req.query;
+    if (typeof periodo === "string" && CLAVE_PERIODO.test(periodo) && filtro.fecha) {
+      const rango = filtro.fecha;
+      delete filtro.fecha;
+      filtro.$or = [{ periodo }, { fecha: rango, periodo: { $in: [null, ""] } }];
     }
 
     // El informe de tareas por personal solo suma cantidades y filtra: no le

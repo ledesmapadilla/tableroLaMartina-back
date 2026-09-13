@@ -35,6 +35,15 @@ const ParteDiarioSchema = new Schema(
     lote: { type: String, trim: true, default: "" },
     observacion: { type: String, trim: true, default: "" },
 
+    // Un parte con fecha posterior al cierre de un mes va al certificado
+    // siguiente, salvo que se lo deje en ese mes con una explicación. Entonces
+    // `periodo` ("AAAA-MM") dice a qué certificado pertenece, sin importar la
+    // fecha, y `motivoFueraDeCierre` guarda la explicación (que también se
+    // anota en observación). Los partes comunes lo tienen en null: van por
+    // fecha.
+    periodo: { type: String, default: null },
+    motivoFueraDeCierre: { type: String, trim: true, default: "" },
+
     tarea: { type: Schema.Types.ObjectId, ref: "Tarea" },
     // La cantidad se carga siempre a mano, también cuando la tarea se mide en
     // horas: puede no coincidir con el total del turno.

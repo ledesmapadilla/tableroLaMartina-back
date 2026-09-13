@@ -12,8 +12,10 @@ const delRequest = (req) => {
 const UN_DIA = 24 * 60 * 60 * 1000;
 
 // Corte por defecto mientras nadie lo haya definido: del 26 del mes anterior
-// al 25 de este. Es el que usaba la planilla de abril 2026, pero cambia mes a
-// mes, así que se puede editar y queda guardado.
+// al 25 de este. La fecha de cierre es el 25 (regla del usuario, 12/09/2026) y
+// se puede editar; queda guardada. Rige también con el mes abierto: nada
+// posterior al cierre entra en el certificado salvo que se lo deje con una
+// explicación (ver `periodo` en ParteDiario).
 const porDefecto = (anio, mes) => ({
   desde: new Date(Date.UTC(mes === 1 ? anio - 1 : anio, mes === 1 ? 11 : mes - 2, 26)),
   hasta: new Date(Date.UTC(anio, mes - 1, 25)),
@@ -27,18 +29,19 @@ const mesAnterior = (anio, mes) => (mes === 1 ? { anio: anio - 1, mes: 12 } : { 
 const mesSiguiente = (anio, mes) => (mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 });
 
 // El corte sugerido de un mes que todavía no se guardó. El "desde" sale del
-// cierre del mes anterior; mientras ese mes siga abierto su "hasta" acompaña al
-// día de hoy y no es un corte real, así que se cae al 26 por defecto.
+// cierre del mes anterior, esté cerrado o no: su fecha de cierre ya es un
+// corte real. El "hasta" es el 25 del mes.
 const sugerido = (anio, mes, anterior) => {
   const base = porDefecto(anio, mes);
-  if (!anterior?.cerrado || !anterior?.hasta) return base;
+  if (!anterior?.hasta) return base;
   return { desde: diaSiguiente(anterior.hasta), hasta: base.hasta };
 };
 
-// Cerrar un mes corre el arranque del siguiente. Solo se toca si el que sigue
-// está abierto: un certificado cerrado no se mueve solo.
+// Mover la fecha de cierre de un mes (o cerrarlo) corre el arranque del
+// siguiente. Solo se toca si el que sigue está abierto: un certificado cerrado
+// no se mueve solo.
 const correrArranqueDelSiguiente = async (periodo) => {
-  if (!periodo?.cerrado) return;
+  if (!periodo?.hasta) return;
 
   const { anio, mes } = mesSiguiente(periodo.anio, periodo.mes);
   const siguiente = await PeriodoCertificado.findOne({
@@ -161,8 +164,8 @@ export const guardarPeriodo = async (req, res) => {
       { new: true, upsert: true, runValidators: true }
     );
 
-    // Al cerrar un mes, el siguiente tiene que arrancar al día siguiente. No
-    // debe voltear el guardado: el período de este mes ya quedó bien.
+    // El mes siguiente tiene que arrancar al día siguiente del cierre. No debe
+    // voltear el guardado: el período de este mes ya quedó bien.
     await correrArranqueDelSiguiente(periodo).catch((e) =>
       console.error("No se pudo correr el arranque del mes siguiente:", e.message)
     );

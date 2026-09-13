@@ -7,9 +7,11 @@ import {
   parsearHorometro as parsear,
   validarLectura,
   registrarCambio,
+  corregirLectura,
   cambiosDeTractor,
   horometroVigente,
   horasAcumuladas,
+  lecturasDeVisitas,
 } from "../services/horometros.service.js";
 
 // Los services ya tienen su propia fila en el historial: materializarlos como
@@ -59,6 +61,23 @@ export const crearCambio = async (req, res) => {
     res.status(201).json(cambio);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+// Corrige la última lectura registrada cuando la que estaba mal era esa y no
+// la nueva (opción 4 del aviso). La pantalla reintenta el guardado después.
+export const corregir = async (req, res) => {
+  try {
+    const { tractor, fecha, valorAnterior, valorNuevo } = req.body;
+    if (!mongoose.isValidObjectId(tractor)) {
+      return res.status(400).json({ error: "Tractor inválido" });
+    }
+    const resultado = await corregirLectura({ tractor, fecha, valorAnterior, valorNuevo });
+    // El valor corregido también retrocede respecto de una lectura anterior.
+    if (!resultado.ok) return res.status(409).json(resultado);
+    res.json(resultado);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
   }
 };
 
@@ -240,9 +259,10 @@ export const getHistorialPorTractor = async (req, res) => {
   try {
     const { tractorId } = req.params;
     const orConditions = [];
+    let tractorDoc = null;
     if (mongoose.isValidObjectId(tractorId)) {
       orConditions.push({ tractor: tractorId });
-      const tractorDoc = await Tractor.findById(tractorId);
+      tractorDoc = await Tractor.findById(tractorId).lean();
       if (tractorDoc?.cc) orConditions.push({ cc: tractorDoc.cc });
     } else {
       orConditions.push({ cc: tractorId });
@@ -250,7 +270,41 @@ export const getHistorialPorTractor = async (req, res) => {
 
     const registros = await HorometroTractor.find(orConditions.length ? { $or: orConditions } : {})
       .populate("tractor", "cc descripcion supervisor gruppo")
-      .sort({ fecha: -1, createdAt: -1 });
+      .sort({ fecha: -1, createdAt: -1 })
+      .lean();
+    // lean() no aplica los defaults del esquema: las lecturas viejas, cargadas
+    // antes de que existiera `origen`, son cargas manuales.
+    registros.forEach((r) => {
+      r.origen = r.origen || "manual";
+    });
+
+    // Las visitas no tienen fila propia en el historial (solo se copian cuando
+    // una carga manual las tapa): sin esto, apenas una lectura más nueva la
+    // reemplaza en la tabla, la de la visita no se ve en ningún lado. Van de
+    // solo lectura porque se editan desde Visitas. Las ya copiadas no se
+    // repiten.
+    if (tractorDoc) {
+      const dia = (f) => new Date(f).toISOString().split("T")[0];
+      const listadas = new Set(registros.map((r) => `${dia(r.fecha)}|${r.horometro}`));
+      const { _id, cc, descripcion, supervisor, gruppo } = tractorDoc;
+      for (const l of await lecturasDeVisitas(tractorDoc)) {
+        const clave = `${l.fecha}|${l.horometro}`;
+        if (listadas.has(clave)) continue;
+        listadas.add(clave);
+        registros.push({
+          _id: l.id,
+          tractor: { _id, cc, descripcion, supervisor, gruppo },
+          cc,
+          fecha: new Date(`${l.fecha}T00:00:00.000Z`),
+          horometro: l.horometro,
+          origen: "visita",
+          observaciones: l.observaciones || `Visita${l.grupo ? ` (${l.grupo})` : ""}`,
+          soloLectura: true,
+        });
+      }
+      // sort es estable: a igual fecha se mantiene el orden por createdAt.
+      registros.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    }
     res.json(registros);
   } catch (error) {
     res.status(500).json({ error: error.message });

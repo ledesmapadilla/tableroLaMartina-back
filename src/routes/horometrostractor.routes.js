@@ -7,6 +7,7 @@ import {
   eliminar,
   validar,
   crearCambio,
+  corregir,
   getCambios,
   getHorasAcumuladas,
 } from "../controllers/horometrostractor.controller.js";
@@ -19,6 +20,7 @@ router.get("/historial/:tractorId", getHistorialPorTractor);
 // Regla del horómetro. Van antes de "/:id" para que no las capture esa ruta.
 router.post("/validar", validar);
 router.post("/cambio", crearCambio);
+router.post("/corregir-lectura", corregir);
 router.get("/cambios/:tractorId", getCambios);
 router.get("/acumuladas/:tractorId", getHorasAcumuladas);
 

@@ -1,5 +1,10 @@
 import BerdinaPedido from '../models/BerdinaPedido.js'
 
+// "AAAA-MM-DD" de hoy en Argentina. El servidor corre en UTC: desde las 21 hs
+// su "hoy" ya es mañana y dejaría pasar un pedido con fecha a futuro.
+const hoyArgentina = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date())
+
 export const getAll = async (req, res) => {
   try {
     const pedidos = await BerdinaPedido.find({}, { 'items.historial': 0 }).sort({ nro_pedido: -1 })
@@ -59,6 +64,8 @@ export const getHistorialGerencia = async (req, res) => {
           precio1: i.precio1,
           precio2: i.precio2,
           precio3: i.precio3,
+          // El presupuesto elegido: el costo sale de ese y no siempre del mínimo.
+          elegido: i.elegido,
           nro_pedido: p.nro_pedido,
           fecha: p.fecha,
           pedidoId: p._id,
@@ -81,6 +88,9 @@ export const crear = async (req, res) => {
   try {
     const { fecha, items } = req.body
     if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria.' })
+    if (String(fecha).slice(0, 10) > hoyArgentina()) {
+      return res.status(400).json({ error: 'La fecha del pedido no puede ser posterior a hoy.' })
+    }
     if (!items || items.length === 0) return res.status(400).json({ error: 'El pedido debe tener al menos un ítem.' })
     for (const item of items) {
       if (!item.nombre_repuesto?.trim()) return res.status(400).json({ error: 'Cada ítem debe tener nombre de repuesto.' })
@@ -100,12 +110,16 @@ export const crear = async (req, res) => {
 
 export const actualizarItem = async (req, res) => {
   try {
-    const { usuario, nota, ...campos } = req.body
+    // fechaHistorial va aparte de los campos: es el día del cambio de estado
+    // (por ejemplo, cuándo se retiró), no la fecha del ítem.
+    const { usuario, nota, fechaHistorial, ...campos } = req.body
     const setFields = {}
     Object.entries(campos).forEach(([k, v]) => { setFields[`items.$.${k}`] = v })
     const update = { $set: setFields }
     if (campos.estado) {
-      update.$push = { 'items.$.historial': { estado: campos.estado, usuario: usuario || 'Sistema', fecha: new Date(), ...(nota ? { nota } : {}) } }
+      const fecha = fechaHistorial ? new Date(fechaHistorial) : new Date()
+      if (Number.isNaN(fecha.getTime())) return res.status(400).json({ error: 'Fecha inválida.' })
+      update.$push = { 'items.$.historial': { estado: campos.estado, usuario: usuario || 'Sistema', fecha, ...(nota ? { nota } : {}) } }
     }
     const updated = await BerdinaPedido.findOneAndUpdate(
       { _id: req.params.id, 'items._id': req.params.itemId },

@@ -329,7 +329,8 @@ export const create = async (req, res) => {
       cc: tractorDoc?.cc || req.body.cc,
       responsable: req.body.responsable || tractorDoc?.supervisor || "",
       horometro: Number(req.body.horometro),
-      intervalo: Number(req.body.intervalo) || 250,
+      // Sin intervalo elegido va el estándar de la unidad del equipo.
+      intervalo: Number(req.body.intervalo) || (tractorDoc?.unidad === "km" ? 10000 : 250),
     };
     const registro = new ServiceTractor(data);
     await registro.save();

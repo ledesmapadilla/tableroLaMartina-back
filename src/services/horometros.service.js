@@ -15,6 +15,7 @@ import HorometroTractor from "../models/HorometroTractor.js";
 import ParteDiario from "../models/ParteDiario.js";
 import CentroCosto from "../models/CentroCosto.js";
 import CambioHorometro from "../models/CambioHorometro.js";
+import PeriodoCertificado from "../models/PeriodoCertificado.js";
 
 // Devuelve el número de un valor libre ("1519", "1519 hs", "S/H", 1519).
 export const parsearHorometro = (valor) => {
@@ -34,6 +35,36 @@ const aDia = (fecha) => {
 };
 
 const limpiarCC = (cc) => String(cc || "").replace(/^cc\s*/i, "").trim();
+
+/**
+ * Los pares { cc, valor } que anota una visita, en todos los formatos en que
+ * puede venir el horómetro (texto libre):
+ *   - un CC y el valor suelto: cc "160", horómetro "395" o "395 hs";
+ *   - pares cc:valor, uno o varios: "160: 405 hs, 1104: 9470 hs" (es lo que
+ *     arma el formulario de Visitas; no hace falta que el CC esté en `cc`);
+ *   - varios CC con los valores por posición: cc "160, 165", horómetro
+ *     "330, 1409" (cargas viejas; así lo lee también la tabla de Preventivo).
+ * "S/H" o vacío no es lectura, y un solo valor para varios CC no se puede
+ * repartir: en esos casos no hay pares.
+ */
+export const paresDeVisita = (visita) => {
+  const h = String(visita?.horometro || "").trim();
+  if (!h || h.toUpperCase() === "S/H") return [];
+
+  if (h.includes(":")) {
+    return [...h.matchAll(/(?:CC\s*)?([0-9a-zA-Z\-_]+)\s*:\s*([^,;]+)/gi)].map((m) => ({
+      cc: limpiarCC(m[1]),
+      valor: m[2],
+    }));
+  }
+
+  const ccs = String(visita?.cc || "").split(/[,;]+/).map(limpiarCC).filter(Boolean);
+  if (ccs.length === 1) return [{ cc: ccs[0], valor: h }];
+  const valores = h.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+  return ccs.length > 1 && valores.length === ccs.length
+    ? ccs.map((cc, i) => ({ cc, valor: valores[i] }))
+    : [];
+};
 
 // ── Cambios de horómetro ──────────────────────────────────────────────
 
@@ -97,32 +128,74 @@ export const acumularConCambios = (cambios, lectura, fecha) => {
 
 // ── Lecturas ya cargadas ──────────────────────────────────────────────
 
+// Una lectura suelta en el formato común, o null si el valor no es un número.
+const nuevaLectura = (fecha, valor, fuente, id, campo = null) => {
+  const n = parsearHorometro(valor);
+  if (n === null) return null;
+  return {
+    fecha: aDia(fecha),
+    horometro: n,
+    fuente,
+    id: String(id),
+    campo,
+    clave: campo ? `${id}:${campo}` : String(id),
+  };
+};
+
+/**
+ * Las lecturas del tractor tomadas en visitas. Las visitas guardan el CC como
+ * texto y pueden traer varios en un campo ("CC 12: 3400, CC 15: 890"): hay que
+ * recorrerlas todas y quedarse con los pares de este tractor. Cada lectura
+ * trae además el grupo y las observaciones de la visita, para el historial.
+ */
+export const lecturasDeVisitas = async (tractor) => {
+  const cc = limpiarCC(tractor?.cc);
+  if (!cc) return [];
+  const visitas = await Visita.find({ horometro: { $exists: true, $ne: "" } })
+    .select("fecha cc horometro grupo observaciones")
+    .lean();
+
+  const lecturas = [];
+  const push = (v, valor) => {
+    const l = nuevaLectura(v.fecha, valor, "visita", v._id);
+    if (l) lecturas.push({ ...l, grupo: v.grupo || "", observaciones: v.observaciones || "" });
+  };
+
+  visitas.forEach((v) => {
+    for (const par of paresDeVisita(v)) {
+      if (par.cc === cc) push(v, par.valor);
+    }
+  });
+  return lecturas;
+};
+
 /**
  * Todas las lecturas del tractor, de las cinco fuentes, como
- * { fecha, horometro, fuente, id }. Sin ordenar.
+ * { fecha, horometro, fuente, id, campo, clave }. Sin ordenar.
+ *
+ * Un parte trae dos lecturas en el mismo documento: `campo` dice cuál es y
+ * `clave` las distingue cuando hay que tocar o ignorar solo una de ellas.
  */
 export const lecturasDeTractor = async (tractorId, tractorPrecargado = null) => {
   // El que llama suele tener el tractor a mano (el parte llega con el CC y su
   // tractor ya poblados): releerlo es una consulta de más.
   const tractor = tractorPrecargado || (await Tractor.findById(tractorId).lean());
   if (!tractor) return [];
-  const cc = limpiarCC(tractor.cc);
   const lecturas = [];
 
-  const push = (fecha, valor, fuente, id) => {
-    const n = parsearHorometro(valor);
-    if (n === null) return;
-    lecturas.push({ fecha: aDia(fecha), horometro: n, fuente, id: String(id) });
+  const push = (...datos) => {
+    const l = nuevaLectura(...datos);
+    if (l) lecturas.push(l);
   };
 
-  const [services, trabajos, manuales, centros, visitas] = await Promise.all([
+  const [services, trabajos, manuales, centros, deVisitas] = await Promise.all([
     ServiceTractor.find({ tractor: tractorId }).select("fecha horometro").lean(),
     TrabajoTractor.find({ tractor: tractorId, horometro: { $nin: ["", null] } })
       .select("fecha horometro")
       .lean(),
     HorometroTractor.find({ tractor: tractorId }).select("fecha horometro origen").lean(),
     CentroCosto.find({ tractor: tractorId }).select("_id").lean(),
-    Visita.find({ horometro: { $exists: true, $ne: "" } }).select("fecha cc horometro").lean(),
+    lecturasDeVisitas(tractor),
   ]);
 
   services.forEach((s) => push(s.fecha, s.horometro, "service", s._id));
@@ -138,24 +211,12 @@ export const lecturasDeTractor = async (tractorId, tractorPrecargado = null) => 
       .select("fecha horomIngreso horomSalida")
       .lean();
     filas.forEach((p) => {
-      push(p.fecha, p.horomIngreso, "parte", p._id);
-      push(p.fecha, p.horomSalida, "parte", p._id);
+      push(p.fecha, p.horomIngreso, "parte", p._id, "horomIngreso");
+      push(p.fecha, p.horomSalida, "parte", p._id, "horomSalida");
     });
   }
 
-  // Las visitas guardan el CC como texto y pueden traer varios en un campo:
-  // "CC 12: 3400, CC 15: 890".
-  visitas.forEach((v) => {
-    const h = String(v.horometro).trim();
-    const ccStr = String(v.cc || "").trim();
-    if (h.includes(":") || ccStr.includes(",")) {
-      for (const m of h.matchAll(/(?:CC\s*)?([0-9a-zA-Z\-_]+)\s*:\s*([^,;]+)/gi)) {
-        if (limpiarCC(m[1]) === cc) push(v.fecha, m[2], "visita", v._id);
-      }
-    } else if (limpiarCC(ccStr) === cc) {
-      push(v.fecha, h, "visita", v._id);
-    }
-  });
+  lecturas.push(...deVisitas);
 
   return lecturas;
 };
@@ -181,19 +242,25 @@ export const contextoDeHorometro = async (tractorId, fecha, tractorPrecargado = 
  * tiempo para que una carga vieja y errónea no habilite otra por debajo.
  *
  * `ignorarId` sirve al editar: el propio registro no se compara consigo mismo.
+ * Acepta un id o una lista de ids / claves (la corrección ignora todas las
+ * copias de la lectura que está corrigiendo).
  * `contexto` (de `contextoDeHorometro`) evita releer el historial.
  */
 export const ultimaLecturaAntesDe = async (tractorId, fecha, ignorarId = null, contexto = null) => {
   const dia = aDia(fecha);
   const { vigente, lecturas } = contexto || (await contextoDeHorometro(tractorId, fecha));
   const { desde } = vigente;
+  const ignorar = new Set(
+    (Array.isArray(ignorarId) ? ignorarId : [ignorarId]).filter(Boolean).map(String)
+  );
 
   const previas = lecturas.filter(
     (l) =>
       l.fecha <= dia &&
       // Las lecturas del horómetro anterior no se comparan con las del nuevo.
       (!desde || l.fecha >= desde) &&
-      (!ignorarId || l.id !== String(ignorarId))
+      !ignorar.has(l.id) &&
+      !ignorar.has(l.clave)
   );
 
   if (previas.length === 0) return null;
@@ -242,19 +309,7 @@ export const validarLectura = async ({
  * devuelve el primer conflicto que encuentre.
  */
 export const validarVisita = async ({ cc, horometro, fecha, ignorarId = null }) => {
-  const h = String(horometro || "").trim();
-  const ccStr = String(cc || "").trim();
-  if (!h || h.toUpperCase() === "S/H" || !ccStr) return { ok: true };
-
-  // cc suelto -> lectura suelta; o varios pares "CC n: valor".
-  const pares = [];
-  if (h.includes(":") || ccStr.includes(",")) {
-    for (const m of h.matchAll(/(?:CC\s*)?([0-9a-zA-Z\-_]+)\s*:\s*([^,;]+)/gi)) {
-      pares.push({ cc: limpiarCC(m[1]), valor: m[2] });
-    }
-  } else {
-    pares.push({ cc: limpiarCC(ccStr), valor: h });
-  }
+  const pares = paresDeVisita({ cc, horometro });
   if (pares.length === 0) return { ok: true };
 
   const tractores = await Tractor.find().select("cc").lean();
@@ -304,4 +359,162 @@ export const registrarCambio = async ({
     lecturaInicial: Number(lecturaInicial) || 0,
     observaciones,
   });
+};
+
+// ── Corrección de una lectura anterior ────────────────────────────────
+
+// Horas de la máquina en el centro de costo. El horómetro solo avanza, así
+// que una salida menor que el ingreso es un error de carga: se deja en 0.
+// Vive acá porque la usan el alta del parte y la corrección de su lectura.
+export const calcularHorasCC = (ingreso, salida) => {
+  const i = Number(ingreso);
+  const s = Number(salida);
+  if (!Number.isFinite(i) || !Number.isFinite(s) || s <= i) return 0;
+  return Math.round((s - i) * 100) / 100;
+};
+
+const NUMERO = /[\d]+(?:[.,]\d+)?/;
+
+// Cambia el número de un valor libre y deja el resto ("3400 hs" -> "340 hs").
+const reemplazarNumero = (valor, nuevo) =>
+  typeof valor === "number" ? nuevo : String(valor ?? "").replace(NUMERO, String(nuevo));
+
+// La visita guarda el horómetro como texto y puede anotar varios tractores:
+// solo se toca el par del tractor que se corrige.
+// Los formatos son los de `paresDeVisita`.
+export const corregirTextoVisita = (visita, cc, anterior, nuevo) => {
+  const h = String(visita.horometro || "").trim();
+  if (h.includes(":")) {
+    return h.replace(/(?:CC\s*)?([0-9a-zA-Z\-_]+)\s*:\s*([^,;]+)/gi, (todo, c, valor) =>
+      limpiarCC(c) === cc && parsearHorometro(valor) === anterior
+        ? todo.slice(0, todo.length - valor.length) + reemplazarNumero(valor, nuevo)
+        : todo
+    );
+  }
+
+  const pares = paresDeVisita(visita);
+  if (pares.length > 1) {
+    // Valores por posición: se reescribe solo el que le toca al tractor.
+    let i = -1;
+    return h.replace(/[^,;]+/g, (parte) => {
+      if (!parte.trim()) return parte;
+      i += 1;
+      return pares[i]?.cc === cc && parsearHorometro(parte) === anterior
+        ? parte.replace(NUMERO, String(nuevo))
+        : parte;
+    });
+  }
+  return reemplazarNumero(h, nuevo);
+};
+
+const falla = (status, mensaje) => Object.assign(new Error(mensaje), { status });
+
+// Un certificado cerrado queda congelado: la corrección no puede cambiarle
+// los horómetros (ni las horas de CC) a un parte que ya se certificó. Se
+// compara por día porque desde/hasta pueden venir con hora.
+const partesCertificados = async (ids) => {
+  if (!ids.length) return [];
+  const partes = await ParteDiario.find({ _id: { $in: ids } })
+    .select("fecha establecimiento")
+    .lean();
+  const cerrados = [];
+  for (const p of partes) {
+    const dia = aDia(p.fecha);
+    const cerrado = await PeriodoCertificado.exists({
+      establecimiento: p.establecimiento,
+      cerrado: true,
+      desde: { $lte: new Date(`${dia}T23:59:59.999Z`) },
+      hasta: { $gte: new Date(`${dia}T00:00:00.000Z`) },
+    });
+    if (cerrado) cerrados.push(p);
+  }
+  return cerrados;
+};
+
+/**
+ * Corrige una lectura ya registrada que estaba mal cargada (opción 4 del
+ * aviso). La misma lectura suele figurar en varias fuentes: la reparación y
+ * su copia en el historial, el parte y la suya. Se corrigen todas las del
+ * tractor con ese valor en ese día, para que ninguna copia vieja siga
+ * frenando la carga nueva.
+ *
+ * El valor corregido respeta la regla contra las lecturas anteriores a él.
+ * Devuelve { ok: true, corregidas } o { ok: false, ...conflicto }.
+ */
+export const corregirLectura = async ({ tractor, fecha, valorAnterior, valorNuevo }) => {
+  const anterior = Number(valorAnterior);
+  const nuevo = Number(valorNuevo);
+  if (!Number.isFinite(anterior)) throw falla(400, "Falta la lectura a corregir");
+  if (!Number.isFinite(nuevo) || nuevo < 0) throw falla(400, "Indique el valor correcto");
+
+  const tractorDoc = await Tractor.findById(tractor).lean();
+  if (!tractorDoc) throw falla(404, "Tractor no encontrado");
+
+  const dia = aDia(fecha);
+  const lecturas = await lecturasDeTractor(tractor, tractorDoc);
+  const objetivo = lecturas.filter((l) => l.fecha === dia && l.horometro === anterior);
+  if (!objetivo.length) {
+    throw falla(404, `No se encontró la lectura ${anterior} del ${dia} para corregir`);
+  }
+
+  const idsPartes = [...new Set(objetivo.filter((l) => l.fuente === "parte").map((l) => l.id))];
+  const certificados = await partesCertificados(idsPartes);
+  if (certificados.length) {
+    throw falla(
+      409,
+      `La lectura está en un parte del ${aDia(certificados[0].fecha)} que pertenece a un ` +
+        "certificado cerrado. Hay que reabrir el certificado para corregirla."
+    );
+  }
+
+  const chequeo = await validarLectura({
+    tractor,
+    fecha: dia,
+    horometro: nuevo,
+    ignorarId: objetivo.map((l) => l.clave),
+    contexto: { vigente: await horometroVigente(tractor, dia), lecturas },
+  });
+  if (!chequeo.ok) return chequeo;
+
+  const cc = limpiarCC(tractorDoc.cc);
+  const hechos = new Set();
+  for (const l of objetivo) {
+    // Un parte puede traer ingreso y salida con el mismo valor, y una visita
+    // varias veces el mismo tractor: cada documento se reescribe una vez.
+    if (hechos.has(l.id)) continue;
+    hechos.add(l.id);
+
+    if (l.fuente === "service") {
+      await ServiceTractor.updateOne({ _id: l.id }, { $set: { horometro: nuevo } });
+    } else if (l.fuente === "reparacion") {
+      const t = await TrabajoTractor.findById(l.id).select("horometro").lean();
+      await TrabajoTractor.updateOne(
+        { _id: l.id },
+        { $set: { horometro: reemplazarNumero(t?.horometro, nuevo) } }
+      );
+    } else if (l.fuente.startsWith("horometro:")) {
+      await HorometroTractor.updateOne({ _id: l.id }, { $set: { horometro: nuevo } });
+    } else if (l.fuente === "parte") {
+      const p = await ParteDiario.findById(l.id).select("horomIngreso horomSalida").lean();
+      const campos = objetivo.filter((o) => o.id === l.id).map((o) => o.campo);
+      const cambios = Object.fromEntries(campos.map((c) => [c, nuevo]));
+      const ingreso = cambios.horomIngreso ?? p.horomIngreso;
+      const salida = cambios.horomSalida ?? p.horomSalida;
+      await ParteDiario.updateOne(
+        { _id: l.id },
+        { $set: { ...cambios, horasCC: calcularHorasCC(ingreso, salida) } }
+      );
+    } else if (l.fuente === "visita") {
+      const v = await Visita.findById(l.id).select("cc horometro").lean();
+      await Visita.updateOne(
+        { _id: l.id },
+        { $set: { horometro: corregirTextoVisita(v, cc, anterior, nuevo) } }
+      );
+    }
+  }
+
+  return {
+    ok: true,
+    corregidas: objetivo.map(({ fuente, id, campo, fecha: f }) => ({ fuente, id, campo, fecha: f })),
+  };
 };

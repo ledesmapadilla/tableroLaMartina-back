@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 
-const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Colectivos', 'Herreria', 'Gomeria', 'Stock', 'Otros']
+const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros']
 
 const historialItemSchema = new mongoose.Schema({
   fecha:   { type: Date, default: Date.now },
@@ -27,6 +27,8 @@ const itemSchema = new mongoose.Schema({
   precio2:    { type: Number },
   proveedor3: { type: String },
   precio3:    { type: Number },
+  // Cuál de los tres presupuestos vale (1, 2 o 3). Vacío: el más barato.
+  elegido:    { type: Number, min: 1, max: 3 },
   oc:         { type: String },
 })
 

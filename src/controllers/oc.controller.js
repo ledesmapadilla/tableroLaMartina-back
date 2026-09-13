@@ -21,6 +21,61 @@ export const getByDisplay = async (req, res) => {
   }
 }
 
+/**
+ * Aplica la compra de un ítem a su pedido (en memoria; el que llama guarda).
+ *
+ * El comprador puede comprar menos de lo pedido. El resto se separa en un
+ * ítem nuevo del mismo pedido, con la misma descripción y el mismo análisis:
+ * vuelve a "Para hacer OC" (queda pendiente para el comprador, sin volver a
+ * Gerencia) o queda "Rechazado" con el motivo. Así cada ítem sigue teniendo
+ * una sola cantidad y un solo estado, y ninguna pantalla tiene que saber de
+ * compras parciales.
+ */
+const aplicarCompra = (pedido, ocItem, nroOC) => {
+  const item = pedido.items.id(ocItem.itemId)
+  if (!item) return
+  const pedida = typeof item.cant === 'number' ? item.cant : null
+  const comprada = Number(ocItem.cant)
+  const parcial = pedida != null && Number.isInteger(comprada) && comprada >= 1 && comprada < pedida
+  const ahora = new Date()
+
+  if (parcial) {
+    const resto = pedida - comprada
+    const rechaza = ocItem.resto?.accion === 'rechazar'
+    const motivo = String(ocItem.resto?.motivo || '').trim()
+    const estado = rechaza ? 'Rechazado' : 'Para hacer OC'
+    const copia = item.toObject()
+    delete copia._id
+    delete copia.oc
+    pedido.items.push({
+      ...copia,
+      cant: resto,
+      estado,
+      historial: [
+        ...(copia.historial || []),
+        {
+          estado,
+          usuario: 'Comprador',
+          fecha: ahora,
+          nota: rechaza
+            ? `Rechazo parcial: ${resto} de ${pedida}${motivo ? ` · ${motivo}` : ''}`
+            : `Saldo pendiente: ${resto} de ${pedida} (compra parcial en ${nroOC})`,
+        },
+      ],
+    })
+    item.cant = comprada
+  }
+
+  item.estado = 'Para retirar'
+  item.oc = nroOC
+  item.historial.push({
+    estado: 'Para retirar',
+    usuario: 'Comprador',
+    fecha: ahora,
+    nota: parcial ? `OC generada: ${nroOC} · compra parcial: ${comprada} de ${pedida}` : `OC generada: ${nroOC}`,
+  })
+}
+
 export const crear = async (req, res) => {
   try {
     const { items, total, establecimiento } = req.body
@@ -33,16 +88,24 @@ export const crear = async (req, res) => {
 
     const oc = await new OC({ nro_oc, establecimiento, nro_oc_display, items, total }).save()
 
-    await Promise.all(items.map(ocItem => {
-      const Model = ocItem._src === 'berdina' ? BerdinaPedido : SanPabloPedido
-      return Model.findOneAndUpdate(
-        { _id: ocItem.pedidoId, 'items._id': ocItem.itemId },
-        {
-          $set: { 'items.$.estado': 'Para retirar', 'items.$.oc': nro_oc_display },
-          $push: { 'items.$.historial': { estado: 'Para retirar', usuario: 'Comprador', nota: `OC generada: ${nro_oc_display}`, fecha: new Date() } },
-        }
-      )
-    }))
+    // Los ítems de un mismo pedido se aplican juntos y el pedido se guarda una
+    // sola vez: una compra parcial agrega un ítem, y dos guardados en paralelo
+    // del mismo pedido se pisaban.
+    const porPedido = new Map()
+    for (const ocItem of items) {
+      const clave = `${ocItem._src}-${ocItem.pedidoId}`
+      if (!porPedido.has(clave)) porPedido.set(clave, [])
+      porPedido.get(clave).push(ocItem)
+    }
+    await Promise.all(
+      [...porPedido.values()].map(async (delPedido) => {
+        const Model = delPedido[0]._src === 'berdina' ? BerdinaPedido : SanPabloPedido
+        const pedido = await Model.findById(delPedido[0].pedidoId)
+        if (!pedido) return
+        delPedido.forEach((ocItem) => aplicarCompra(pedido, ocItem, nro_oc_display))
+        await pedido.save()
+      })
+    )
 
     res.status(201).json(oc)
   } catch (err) {
