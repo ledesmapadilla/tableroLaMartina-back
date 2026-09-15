@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getAll, getByDisplay, crear } from '../controllers/oc.controller.js'
+import { getAll, getByDisplay, crear } from '../controllers/op.controller.js'
 
 const router = Router()
 router.get('/', getAll)

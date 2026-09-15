@@ -1,3 +1,6 @@
+// Orden de pago (antes 'orden de compra'). El nombre del modelo y los campos
+// nro_oc / nro_oc_display quedan como estaban para no mover la coleccion 'ocs'.
+
 import mongoose from 'mongoose'
 
 const ocItemSchema = new mongoose.Schema({

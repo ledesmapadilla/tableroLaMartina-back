@@ -15,6 +15,16 @@ const avisoGestionado = (equipo) =>
     EQUIPOS_GESTIONADOS[(equipo || "").trim()]
   }`;
 
+// Qué pantalla manda sobre un CC ya guardado. El que está enlazado a un
+// tractor es de Tractores aunque su equipo diga "Camión" (el CC 901 es un
+// camión cargado en Tractores para llevar sus services por km); si no, se
+// decide por el equipo.
+const pantallaQueManda = (centro) =>
+  centro.tractor ? "Tractores" : EQUIPOS_GESTIONADOS[(centro.equipo || "").trim()] || null;
+
+const avisoPantalla = (centro) =>
+  `El CC ${centro.cc} se da de alta en la pantalla de ${pantallaQueManda(centro)}`;
+
 const escapar = (valor) => valor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Coincidencia exacta de CC sin distinguir mayusculas ni espacios de mas, que
@@ -152,7 +162,7 @@ export const update = async (req, res) => {
     // Un CC que viene de otra pantalla conserva ahí su identificación y su
     // descripción; acá solo se le completan los datos de compras.
     const tocaEquipo = CAMPOS_EQUIPO.some((campo) => campo in req.body);
-    if (esGestionado(actual.equipo)) {
+    if (pantallaQueManda(actual)) {
       if (tocaEquipo) {
         // Se avisa solo si de verdad se intentó cambiar algo del equipo: la
         // pantalla de Compras manda el CC entero y no tendría por qué fallar.
@@ -160,7 +170,7 @@ export const update = async (req, res) => {
           (campo) => campo in req.body && String(req.body[campo] ?? "") !== String(actual[campo] ?? "")
         );
         if (cambiaAlgo) {
-          return res.status(400).json({ error: avisoGestionado(actual.equipo) });
+          return res.status(400).json({ error: avisoPantalla(actual) });
         }
       }
     } else {
@@ -189,8 +199,8 @@ export const remove = async (req, res) => {
   try {
     const actual = await CentroCosto.findById(req.params.id);
     if (!actual) return res.status(404).json({ error: "CC no encontrado" });
-    if (esGestionado(actual.equipo)) {
-      return res.status(400).json({ error: avisoGestionado(actual.equipo) });
+    if (pantallaQueManda(actual)) {
+      return res.status(400).json({ error: avisoPantalla(actual) });
     }
 
     await CentroCosto.findByIdAndDelete(req.params.id);

@@ -14,6 +14,10 @@ import {
 // solo el alta la muestra, para poder volver a asignarla o consultarla.
 const GRUPPO_EN_DESUSO = 8;
 
+// Cómo figura la máquina en el padrón de CC. Los camiones cargados acá para
+// llevar sus services (cuentan km, como el CC 901) van como "Camión".
+const equipoDe = (tractor) => (tractor.unidad === "km" ? "Camión" : "Tractor");
+
 /**
  * Por defecto quedan afuera las maquinas en desuso: se filtra aca, en el unico
  * lugar del que salen los tractores, para que ninguna planilla tenga que
@@ -48,7 +52,7 @@ export const create = async (req, res) => {
     // Todo tractor que se da de alta pasa a ser tambien un CC de Producción.
     await asegurarCentroCosto({
       cc: tractor.cc,
-      equipo: "Tractor",
+      equipo: equipoDe(tractor),
       descripcion: tractor.descripcion,
       tractor: tractor._id,
     });
@@ -76,7 +80,7 @@ export const update = async (req, res) => {
     await sincronizarCentroCosto({
       ccAnterior: anterior.cc,
       cc: tractor.cc,
-      equipo: "Tractor",
+      equipo: equipoDe(tractor),
       descripcion: tractor.descripcion,
       tractor: tractor._id,
     });
@@ -91,7 +95,7 @@ export const remove = async (req, res) => {
     const tractor = await Tractor.findByIdAndDelete(req.params.id);
     if (!tractor) return res.status(404).json({ error: "Tractor no encontrado" });
     await registrarBaja(tractor);
-    await eliminarCentroCosto({ cc: tractor.cc, equipo: "Tractor" });
+    await eliminarCentroCosto({ cc: tractor.cc, equipo: equipoDe(tractor) });
     res.json({ message: "Tractor eliminado" });
   } catch (error) {
     res.status(500).json({ error: error.message });

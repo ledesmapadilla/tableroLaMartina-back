@@ -45,7 +45,9 @@ for (const t of tractores) {
 
   await CentroCosto.create({
     cc,
-    equipo: "Tractor",
+    // Los camiones cargados como tractor (cuentan km, como el 901) van como
+    // "Camión", igual que en tractores.controller.js.
+    equipo: t.unidad === "km" ? "Camión" : "Tractor",
     descripcion: t.descripcion || "",
     tractor: t._id,
   });
