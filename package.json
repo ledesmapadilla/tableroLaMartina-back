@@ -17,7 +17,8 @@
     "fusionar-cc": "node --env-file .env scripts/fusionarCentrosCosto.js",
     "migrar-compras": "node --env-file .env scripts/migrarCompras.js",
     "renombrar-op": "node --env-file .env scripts/renombrarOCaOP.js",
-    "colectivos-patente": "node --env-file .env scripts/colectivosPatenteComoCC.js"
+    "colectivos-patente": "node --env-file .env scripts/colectivosPatenteComoCC.js",
+    "equipo-grupo-cc": "node --env-file .env scripts/equipoYGrupoCC.js"
   },
   "type": "module",
   "keywords": [],

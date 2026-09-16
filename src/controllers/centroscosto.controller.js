@@ -15,19 +15,15 @@ import Kilometro from "../models/Kilometro.js";
 import ServiceColectivo from "../models/ServiceColectivo.js";
 import KilometroColectivo from "../models/KilometroColectivo.js";
 import { registrarAlta, registrarCambios, registrarBaja } from "./historialtractor.controller.js";
+import { esEquipo, grupoDeEquipo, flotaDeEquipo, cuentaKm } from "../catalogos/equipos.js";
 
 // El padrón de CC es la única puerta de entrada (15/09/2026). Un CC cuyo
-// equipo es de Flota se da de alta y de baja acá, y la unidad aparece sola en
-// su pantalla, donde solo se la administra y se la agrupa.
-export const EQUIPOS_FLOTA = {
-  Tractor: "Tractores",
-  // Los camiones (como el CC 901) se llevan en Tractores, contando km.
-  Camión: "Tractores",
-  Camioneta: "Camionetas",
-  Colectivo: "Colectivos",
-};
+// equipo es de Flota (ver catalogos/equipos.js) se da de alta y de baja acá, y
+// la unidad aparece sola en su pantalla, donde solo se la administra y se la
+// agrupa. Los camiones (como el CC 901) se llevan en Tractores, contando km.
+const pantallaDeEquipo = flotaDeEquipo;
 
-const pantallaDeEquipo = (equipo) => EQUIPOS_FLOTA[(equipo || "").trim()] || null;
+const avisoEquipo = { error: "Elegí el equipo del CC" };
 
 // Qué pantalla de Flota tiene la unidad de un CC ya guardado. El enlace al
 // tractor manda sobre el equipo escrito.
@@ -81,7 +77,7 @@ const crearUnidad = async (centro, { gruppo } = {}) => {
       tractor = await Tractor.create({
         cc: centro.cc,
         descripcion: centro.descripcion || "",
-        unidad: equipo === "Camión" ? "km" : "hs",
+        unidad: cuentaKm(equipo) ? "km" : "hs",
         gruppo,
       });
       await registrarAlta(tractor);
@@ -137,7 +133,12 @@ export const sincronizarCentroCosto = async ({ cc, equipo, descripcion = "", tra
   try {
     const existente = await CentroCosto.findOne(filtroPorCC(cc));
     if (!existente) return null;
-    existente.equipo = equipo;
+    // Tractores solo sabe si cuenta horas o km: un Manitou que se edita ahí
+    // sigue siendo Manitou, no pasa a "Tractor".
+    const mismoTipo =
+      flotaDeEquipo(existente.equipo) === flotaDeEquipo(equipo) && cuentaKm(existente.equipo) === cuentaKm(equipo);
+    if (!mismoTipo) existente.equipo = equipo;
+    existente.grupo = grupoDeEquipo(existente.equipo);
     existente.descripcion = descripcion || "";
     if (tractor) existente.tractor = tractor;
     return await existente.save();
@@ -169,8 +170,9 @@ export const getById = async (req, res) => {
 };
 
 // Los campos que mantiene Compras. Se pueden editar en cualquier CC, también
-// en uno de Flota: el grupo y la marca son datos de compras, no del equipo.
-const CAMPOS_COMPRAS = ["grupo", "marca", "observaciones"];
+// en uno de Flota. El grupo no: sale siempre del equipo (catalogos/equipos.js)
+// y lo que venga en el pedido se ignora.
+const CAMPOS_COMPRAS = ["marca", "observaciones"];
 
 // Los que describen al equipo. En un CC de Flota quedan fijos: horómetros,
 // services e historial guardan una copia del código, y la descripción se edita
@@ -182,6 +184,7 @@ const limpiar = (v) => String(v ?? "").trim();
 export const create = async (req, res) => {
   try {
     const equipo = limpiar(req.body.equipo);
+    if (!esEquipo(equipo)) return res.status(400).json(avisoEquipo);
     const cc = codigoPara(req.body.cc, equipo);
     const gruppo = grupoDeAlta(req.body.gruppo);
     if (pantallaDeEquipo(equipo) === "Tractores" && !gruppo) {
@@ -190,7 +193,7 @@ export const create = async (req, res) => {
     if (await yaExiste(cc)) {
       return res.status(400).json({ error: "Ya existe un CC con ese código" });
     }
-    const datos = { cc, equipo, descripcion: limpiar(req.body.descripcion) };
+    const datos = { cc, equipo, grupo: grupoDeEquipo(equipo), descripcion: limpiar(req.body.descripcion) };
     for (const campo of CAMPOS_COMPRAS) datos[campo] = limpiar(req.body[campo]);
     const centro = await CentroCosto.create(datos);
 
@@ -231,9 +234,15 @@ export const update = async (req, res) => {
           error: `El CC ${actual.cc} es de ${pantalla}: el código y el equipo no se cambian, y la descripción se edita en ${pantalla}.`,
         });
       }
+      // Un CC de Flota que quedó con otro grupo se corrige al guardarlo.
+      cambios.grupo = grupoDeEquipo(actual.equipo);
     } else {
       const equipo = "equipo" in req.body ? limpiar(req.body.equipo) : actual.equipo;
+      // Un CC viejo sin equipo tiene que elegirlo para guardarse: sin él no
+      // tiene grupo y Compras no lo ve.
+      if (!esEquipo(equipo)) return res.status(400).json(avisoEquipo);
       if ("equipo" in req.body) cambios.equipo = equipo;
+      cambios.grupo = grupoDeEquipo(equipo);
       if ("descripcion" in req.body) cambios.descripcion = limpiar(req.body.descripcion);
       if ("cc" in req.body || "equipo" in req.body) {
         const cc = codigoPara("cc" in req.body ? req.body.cc : actual.cc, equipo);
@@ -264,6 +273,7 @@ export const update = async (req, res) => {
         await CentroCosto.findByIdAndUpdate(req.params.id, {
           cc: actual.cc,
           equipo: actual.equipo,
+          grupo: actual.grupo,
           descripcion: actual.descripcion,
         });
         return res

@@ -8,9 +8,12 @@ import { Schema, model } from "mongoose";
 //   - Producción → equipo, descripcion, tractor
 //   - Compras    → grupo, marca, observaciones
 //
+// El grupo no se carga a mano: sale del equipo (catalogos/equipos.js, desde el
+// 16/09/2026), así los dos quedan siempre de acuerdo.
+//
 // Sin bitácora de cambios: acá no se lleva historial. El listado de equipos
-// vive en el front (ProduccionAltaCC), así sumar uno nuevo no obliga a tocar
-// el modelo.
+// vive en catalogos/equipos.js, así sumar uno nuevo no obliga a tocar el
+// modelo.
 const CentroCostoSchema = new Schema(
   {
     cc: { type: String, required: true, trim: true },
