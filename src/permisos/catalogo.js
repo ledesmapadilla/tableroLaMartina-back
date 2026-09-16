@@ -38,6 +38,7 @@ export const PERMISOS_HOY = {
   "colectivos.preventivo": TODOS,
   "colectivos.reparaciones": TODOS,
   "mantenimiento.visitas": TODOS,
+  "sanpablo.ingresos": TODOS,
 
   // Producción
   "produccion.variables": SIN_SOLICITANTE,

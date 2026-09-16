@@ -28,6 +28,7 @@ import variablesRouter from "./variables.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
+import ingresosSanPabloRouter from "./ingresossanpablo.routes.js";
 
 // Compras. Se unifico con el Tablero el 06/09/2026: comparten base, padron de
 // centros de costo y, mas adelante, login. Ninguna de estas rutas choca con
@@ -154,6 +155,8 @@ router.use("/variables", escribirSi(["produccion.variables"]), variablesRouter);
 router.use("/descuentos", escribirSi(["produccion.contable"]), descuentosRouter);
 router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
 router.use("/pendientes", pendientesRouter);
+// Ingresos al taller de San Pablo (Manitous y las demás tarjetas).
+router.use("/ingresos-sanpablo", escribirSi(["sanpablo.ingresos"]), ingresosSanPabloRouter);
 
 // ── Compras ──
 // Usuarios es solo del superadmin, también para leer: la lista trae las
