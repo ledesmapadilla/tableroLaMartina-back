@@ -2,7 +2,8 @@ import KilometroColectivo from "../models/KilometroColectivo.js";
 import Colectivo from "../models/Colectivo.js";
 import { condicionesPorColectivo } from "./servicescolectivo.controller.js";
 
-const POPULATE_COLECTIVO = "cc patente descripcion supervisor";
+// El cc del colectivo es su patente (ver models/Colectivo.js).
+const POPULATE_COLECTIVO = "cc descripcion supervisor";
 
 export const getAll = async (req, res) => {
   try {

@@ -2,8 +2,11 @@ import { Schema, model } from "mongoose";
 
 const ColectivoSchema = new Schema(
   {
-    cc: { type: String, required: true, trim: true },
-    patente: { type: String, trim: true, uppercase: true },
+    // El CC del colectivo es su patente, igual que en el padrón de CC y en
+    // Compras. Hasta el 15/09/2026 había además un número interno (250–283)
+    // en este campo y la patente aparte; el número se borró
+    // (scripts/colectivosPatenteComoCC.js).
+    cc: { type: String, required: true, trim: true, uppercase: true },
     descripcion: { type: String, trim: true },
     supervisor: { type: String, trim: true },
   },

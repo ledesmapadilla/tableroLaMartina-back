@@ -30,6 +30,7 @@ export const PERMISOS_HOY = {
   "camionetas.historial": TODOS,
   "camionetas.planilla": TODOS,
   "tractores.preventivo": TODOS,
+  "tractores.repuestos": TODOS,
   "tractores.reportar": TODOS,
   "tractores.tareas": TODOS,
   "tractores.historial": TODOS,

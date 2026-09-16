@@ -18,6 +18,7 @@ import horometrosTractorRouter from "./horometrostractor.routes.js";
 import servicesColectivoRouter from "./servicescolectivo.routes.js";
 import kilometrosColectivoRouter from "./kilometroscolectivo.routes.js";
 import historialTractorRouter from "./historialtractor.routes.js";
+import repuestosTractorRouter from "./repuestostractor.routes.js";
 import centrosCostoRouter from "./centroscosto.routes.js";
 import personalRouter from "./personal.routes.js";
 import tareasRouter from "./tareas.routes.js";
@@ -111,6 +112,7 @@ router.use(
 router.use("/services-colectivo", escribirSi(["colectivos.preventivo"]), servicesColectivoRouter);
 router.use("/kilometros-colectivo", escribirSi(["colectivos.preventivo"]), kilometrosColectivoRouter);
 router.use("/historial-tractor", escribirSi(["altas.tractores"]), historialTractorRouter);
+router.use("/repuestos-tractor", escribirSi(["tractores.repuestos"]), repuestosTractorRouter);
 router.use(
   "/paradas",
   escribirSi(["camionetas.checklist", "camionetas.tareas", "camionetas.reportar"]),

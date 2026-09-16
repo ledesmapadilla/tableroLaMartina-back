@@ -1,12 +1,11 @@
 import { Router } from "express";
-import { getAll, getById, create, update, remove } from "../controllers/tractores.controller.js";
+import { getAll, getById, update } from "../controllers/tractores.controller.js";
 
 const router = Router();
 
+// Sin alta ni baja: se hacen en Centros de costo (/centros-costo).
 router.get("/", getAll);
 router.get("/:id", getById);
-router.post("/", create);
 router.put("/:id", update);
-router.delete("/:id", remove);
 
 export default router;

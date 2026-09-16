@@ -16,7 +16,8 @@
     "copiar-variables": "node --env-file .env scripts/copiarVariablesEntreEstablecimientos.js",
     "fusionar-cc": "node --env-file .env scripts/fusionarCentrosCosto.js",
     "migrar-compras": "node --env-file .env scripts/migrarCompras.js",
-    "renombrar-op": "node --env-file .env scripts/renombrarOCaOP.js"
+    "renombrar-op": "node --env-file .env scripts/renombrarOCaOP.js",
+    "colectivos-patente": "node --env-file .env scripts/colectivosPatenteComoCC.js"
   },
   "type": "module",
   "keywords": [],

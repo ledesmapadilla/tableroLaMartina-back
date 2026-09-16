@@ -1,14 +1,11 @@
 import Tractor from "../models/Tractor.js";
-import {
-  registrarAlta,
-  registrarCambios,
-  registrarBaja,
-} from "./historialtractor.controller.js";
-import {
-  asegurarCentroCosto,
-  sincronizarCentroCosto,
-  eliminarCentroCosto,
-} from "./centroscosto.controller.js";
+import { registrarCambios } from "./historialtractor.controller.js";
+import { sincronizarCentroCosto } from "./centroscosto.controller.js";
+
+// El alta y la baja de un tractor se hacen en Centros de costo: al crear un CC
+// de equipo Tractor o Camión aparece acá, y al borrarlo sale (o pasa a "En
+// desuso" si tiene historial). Acá solo se administra y se agrupa; el CC no
+// se cambia.
 
 // Grupo de la maquina que salio de circulacion. No se lista en ningun lado:
 // solo el alta la muestra, para poder volver a asignarla o consultarla.
@@ -44,30 +41,15 @@ export const getById = async (req, res) => {
   }
 };
 
-export const create = async (req, res) => {
-  try {
-    const tractor = new Tractor(req.body);
-    await tractor.save();
-    await registrarAlta(tractor);
-    // Todo tractor que se da de alta pasa a ser tambien un CC de Producción.
-    await asegurarCentroCosto({
-      cc: tractor.cc,
-      equipo: equipoDe(tractor),
-      descripcion: tractor.descripcion,
-      tractor: tractor._id,
-    });
-    res.status(201).json(tractor);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
-
 export const update = async (req, res) => {
   try {
     // Se lee el estado previo antes de pisarlo: es lo unico que permite
     // asentar de que valor a que valor se cambio cada campo.
     const anterior = await Tractor.findById(req.params.id).lean();
     if (!anterior) return res.status(404).json({ error: "Tractor no encontrado" });
+    if ("cc" in req.body && String(req.body.cc ?? "").trim() !== anterior.cc) {
+      return res.status(400).json({ error: "El CC del tractor no se cambia desde acá" });
+    }
 
     const tractor = await Tractor.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -76,9 +58,8 @@ export const update = async (req, res) => {
     if (!tractor) return res.status(404).json({ error: "Tractor no encontrado" });
 
     await registrarCambios(anterior, tractor);
-    // El padrón de tractores manda: la edición se refleja en el CC.
+    // La descripción y si cuenta horas o km se reflejan en el CC.
     await sincronizarCentroCosto({
-      ccAnterior: anterior.cc,
       cc: tractor.cc,
       equipo: equipoDe(tractor),
       descripcion: tractor.descripcion,
@@ -87,17 +68,5 @@ export const update = async (req, res) => {
     res.json(tractor);
   } catch (error) {
     res.status(400).json({ error: error.message });
-  }
-};
-
-export const remove = async (req, res) => {
-  try {
-    const tractor = await Tractor.findByIdAndDelete(req.params.id);
-    if (!tractor) return res.status(404).json({ error: "Tractor no encontrado" });
-    await registrarBaja(tractor);
-    await eliminarCentroCosto({ cc: tractor.cc, equipo: equipoDe(tractor) });
-    res.json({ message: "Tractor eliminado" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 };

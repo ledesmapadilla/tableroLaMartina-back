@@ -1,12 +1,12 @@
 import Camioneta from "../models/Camioneta.js";
 import TrabajoCamioneta from "../models/TrabajoCamioneta.js";
 import Parada from "../models/Parada.js";
-import {
-  asegurarCentroCosto,
-  sincronizarCentroCosto,
-  eliminarCentroCosto,
-} from "./centroscosto.controller.js";
+import { sincronizarCentroCosto } from "./centroscosto.controller.js";
 
+// El alta y la baja de una camioneta se hacen en Centros de costo: al crear un
+// CC de equipo Camioneta (el código es la patente) aparece acá. Acá solo se
+// administra; la patente no se cambia.
+//
 // En el listado de CC la camioneta se identifica por su patente, y la
 // descripción se arma con la marca y el modelo.
 const descripcionCC = (c) => [c.marca, c.modelo].filter(Boolean).join(" ").trim();
@@ -30,30 +30,14 @@ export const getById = async (req, res) => {
   }
 };
 
-export const create = async (req, res) => {
-  try {
-    const camioneta = new Camioneta(req.body);
-    await camioneta.save();
-    // Toda camioneta que se da de alta pasa a ser también un CC de Producción.
-    await asegurarCentroCosto({
-      cc: camioneta.patente,
-      equipo: "Camioneta",
-      descripcion: descripcionCC(camioneta),
-    });
-    res.status(201).json(camioneta);
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ error: "La patente ya está registrada" });
-    }
-    res.status(400).json({ error: error.message });
-  }
-};
-
 export const update = async (req, res) => {
   try {
-    // Se lee la patente previa antes de pisarla: es la que identifica al CC.
     const anterior = await Camioneta.findById(req.params.id).lean();
     if (!anterior) return res.status(404).json({ error: "Camioneta no encontrada" });
+    // La patente es el código del CC: no se cambia desde acá.
+    if ("patente" in req.body && String(req.body.patente ?? "").trim().toUpperCase() !== anterior.patente) {
+      return res.status(400).json({ error: "La patente es el CC de la camioneta: no se cambia desde acá" });
+    }
 
     const camioneta = await Camioneta.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -62,28 +46,13 @@ export const update = async (req, res) => {
     if (!camioneta) return res.status(404).json({ error: "Camioneta no encontrada" });
 
     await sincronizarCentroCosto({
-      ccAnterior: anterior.patente,
       cc: camioneta.patente,
       equipo: "Camioneta",
       descripcion: descripcionCC(camioneta),
     });
     res.json(camioneta);
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ error: "La patente ya está registrada" });
-    }
     res.status(400).json({ error: error.message });
-  }
-};
-
-export const remove = async (req, res) => {
-  try {
-    const camioneta = await Camioneta.findByIdAndDelete(req.params.id);
-    if (!camioneta) return res.status(404).json({ error: "Camioneta no encontrada" });
-    await eliminarCentroCosto({ cc: camioneta.patente, equipo: "Camioneta" });
-    res.json({ message: "Camioneta eliminada" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 };
 
