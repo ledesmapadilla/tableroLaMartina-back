@@ -36,7 +36,6 @@ const brutoDesdeNeto = (neto) =>
 const armarDatos = (body) => {
   const neto = aNumero(body.neto);
   return {
-    cliente: (body.cliente || "").trim(),
     neto,
     bruto: brutoDesdeNeto(neto),
     fecha: aFecha(body.fecha),
@@ -47,7 +46,6 @@ const armarDatos = (body) => {
 // Todos los campos son obligatorios: un precio a medio cargar no sirve para
 // certificar y ensucia el historial.
 const queFalta = (datos) => {
-  if (!datos.cliente) return "Falta el cliente";
   if (datos.neto === null) return "Falta el importe neto";
   if (!Number.isFinite(datos.neto)) return "El importe neto no es un número";
   if (!datos.fecha) return "Falta la fecha";
@@ -56,14 +54,12 @@ const queFalta = (datos) => {
 };
 
 // Todas las cargas, de la vigencia más nueva a la más vieja: así la primera de
-// cada tarea y cliente es la que está rigiendo. Acepta ?cliente para traer solo
-// las de uno.
+// cada tarea es la que está rigiendo.
 export const getAll = async (req, res) => {
   try {
     // Los precios son por establecimiento: la misma tarea puede valer
     // distinto en cada campo.
     const filtro = { establecimiento: clave(req.query.establecimiento) };
-    if (req.query.cliente) filtro.cliente = req.query.cliente;
 
     const variables = await VariableTarea.find(filtro)
       .populate(RELACIONES)
@@ -77,21 +73,8 @@ export const getAll = async (req, res) => {
   }
 };
 
-// Los clientes que ya tienen algún precio cargado. El listado de la pantalla
-// los suma a los que vienen de los partes.
-export const getClientes = async (req, res) => {
-  try {
-    const clientes = await VariableTarea.distinct("cliente", {
-      establecimiento: clave(req.query.establecimiento),
-    });
-    res.json(clientes.filter((c) => (c || "").trim()).sort((a, b) => a.localeCompare(b, "es")));
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Alta de un precio. Cada alta es una fila nueva: la anterior de esa tarea y
-// cliente pasa a ser historial.
+// Alta de un precio. Cada alta es una fila nueva: la anterior de esa tarea
+// pasa a ser historial.
 export const create = async (req, res) => {
   try {
     const { tarea } = req.body;

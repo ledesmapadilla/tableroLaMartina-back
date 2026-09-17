@@ -1,20 +1,16 @@
 import { Schema, model } from "mongoose";
 import { campoEstablecimiento } from "./Establecimiento.js";
 
-// Los valores con los que se certifica cada tarea, por cliente. Cada carga es
-// una fila: el precio vigente de una tarea es el de la última vigencia y las
-// anteriores quedan como historial (04/09/2026). Por eso la tarea NO tiene
-// índice único: una misma tarea tiene un valor por cliente y varios en el
-// tiempo.
+// Los valores con los que se certifica cada tarea. El precio es único para
+// todos: no distingue cliente (17/09/2026). Cada carga es una fila: el precio
+// vigente de una tarea es el de la última vigencia y las anteriores quedan como
+// historial (04/09/2026). Por eso la tarea NO tiene índice único: tiene un
+// valor por cada vez que cambió.
 const VariableTareaSchema = new Schema(
   {
     // La misma tarea puede valer distinto en cada campo.
     establecimiento: campoEstablecimiento,
     tarea: { type: Schema.Types.ObjectId, ref: "Tarea", required: true },
-    // A quién se le certifica ese precio. Texto libre, igual que en el parte:
-    // no hay padrón de clientes, salen de lo que se carga en la planilla.
-    cliente: { type: String, trim: true, default: "" },
-
     // El precio unitario de la tarea, en pesos. El que se carga es el neto; el
     // bruto lo calcula el backend con la retención y se guarda para no tener
     // que rehacer la cuenta en cada pantalla.
@@ -31,8 +27,8 @@ const VariableTareaSchema = new Schema(
   { timestamps: true }
 );
 
-// El historial se lee siempre por tarea y cliente, de la vigencia más nueva a
-// la más vieja.
-VariableTareaSchema.index({ establecimiento: 1, tarea: 1, cliente: 1, vigenciaDesde: -1 });
+// El historial se lee siempre por tarea, de la vigencia más nueva a la más
+// vieja.
+VariableTareaSchema.index({ establecimiento: 1, tarea: 1, vigenciaDesde: -1 });
 
 export default model("VariableTarea", VariableTareaSchema);
