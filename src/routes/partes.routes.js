@@ -6,6 +6,7 @@ import {
   getClientes,
   create,
   update,
+  setTerminado,
   remove,
 } from "../controllers/partes.controller.js";
 
@@ -18,6 +19,7 @@ router.get("/clientes", getClientes);
 router.get("/:id", getById);
 router.post("/", create);
 router.put("/:id", update);
+router.put("/:id/terminado", setTerminado);
 router.delete("/:id", remove);
 
 export default router;

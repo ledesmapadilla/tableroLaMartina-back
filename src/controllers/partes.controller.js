@@ -6,6 +6,7 @@ import {
   borrarLecturaDeParte,
 } from "./horometrostractor.controller.js";
 import CentroCosto from "../models/CentroCosto.js";
+import Tarea from "../models/Tarea.js";
 import {
   validarLectura,
   contextoDeHorometro,
@@ -53,16 +54,42 @@ const aMinutos = (hora) => {
   return h * 60 + min;
 };
 
-// Único campo que no se carga a mano. Si el egreso es anterior al ingreso el
-// turno cruzó la medianoche (22:00 → 06:00 son 8 horas, no -16).
-const calcularTotalHoras = (horaIngreso, horaEgreso) => {
+// Los minutos de un tramo. Si el egreso es anterior al ingreso el turno cruzó
+// la medianoche (22:00 → 06:00 son 8 horas, no -16).
+const minutosDelTramo = (horaIngreso, horaEgreso) => {
   const ingreso = aMinutos(horaIngreso);
   const egreso = aMinutos(horaEgreso);
   if (ingreso === null || egreso === null) return 0;
+  return egreso >= ingreso ? egreso - ingreso : 1440 - ingreso + egreso;
+};
 
-  const minutos = egreso >= ingreso ? egreso - ingreso : 1440 - ingreso + egreso;
+// Único campo que no se carga a mano: la suma de los dos tramos del día. El
+// segundo es el de San Pablo, que corta al mediodía; vacío no suma nada.
+const calcularTotalHoras = (body) => {
+  const minutos =
+    minutosDelTramo(body.horaIngreso, body.horaEgreso) +
+    minutosDelTramo(body.horaIngreso2, body.horaEgreso2);
   // Se redondea a 2 decimales: restando horas del reloj nunca hace falta más.
   return Math.round((minutos / 60) * 100) / 100;
+};
+
+const sinCantidad = (body) =>
+  body.cantidad === "" || body.cantidad === null || body.cantidad === undefined;
+
+// En San Pablo el desmalezado y el herbicida se cargan sin cantidad
+// (17/09/2026); las demás tareas la llevan, como en Caspinchango.
+export const TAREAS_SIN_CANTIDAD = ["desmalezado", "herbicida"];
+
+const sinAcentos = (t) =>
+  (t || "").toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+const faltaLaCantidad = async (body) => {
+  if (!sinCantidad(body)) return false;
+  if (clave(body.establecimiento) !== "san-pablo") return true;
+  if (!mongoose.isValidObjectId(body.tarea)) return true;
+  const tarea = await Tarea.findById(body.tarea).select("tarea").lean();
+  const nombre = sinAcentos(tarea?.tarea);
+  return !TAREAS_SIN_CANTIDAD.some((t) => nombre.includes(t));
 };
 
 const faltantes = (body) => {
@@ -70,14 +97,9 @@ const faltantes = (body) => {
   if (!body.fecha) falta.push("la fecha");
   if (!body.persona) falta.push("la persona");
   if (!body.tarea) falta.push("la tarea");
-  // El cliente decide con qué precio se certifica la tarea (los precios de
-  // Variables son por cliente): sin él, el parte no se puede valorizar.
-  if (!(body.cliente || "").trim()) falta.push("el cliente");
-  if (body.cantidad === "" || body.cantidad === null || body.cantidad === undefined) {
-    falta.push("la cantidad");
-  } else if (isNaN(Number(body.cantidad))) {
-    falta.push("una cantidad válida");
-  }
+  // La cantidad se controla aparte (`faltaLaCantidad`): en San Pablo hay
+  // tareas que no la llevan y para saberlo hay que mirar el padrón.
+  if (!sinCantidad(body) && isNaN(Number(body.cantidad))) falta.push("una cantidad válida");
   return falta;
 };
 
@@ -103,7 +125,7 @@ const CLAVE_PERIODO = /^\d{4}-\d{2}$/;
 
 const armarDatos = (body) => {
   const datos = { ...body, establecimiento: clave(body.establecimiento) };
-  datos.totalHoras = calcularTotalHoras(body.horaIngreso, body.horaEgreso);
+  datos.totalHoras = calcularTotalHoras(body);
   datos.horasCC = calcularHorasCC(body.horomIngreso, body.horomSalida);
   // Los numéricos vacíos llegan como "" desde el formulario.
   ["cantidad", "combustible", "combTurbo", "horomIngreso", "horomSalida"].forEach((campo) => {
@@ -111,6 +133,7 @@ const armarDatos = (body) => {
       ? null
       : Number(body[campo]);
   });
+  datos.terminado = Boolean(body.terminado);
   ["cc", "tarea"].forEach((campo) => {
     if (!body[campo]) datos[campo] = null;
   });
@@ -232,6 +255,7 @@ export const getById = async (req, res) => {
 export const create = async (req, res) => {
   try {
     const falta = faltantes(req.body);
+    if (await faltaLaCantidad(req.body)) falta.push("la cantidad");
     if (falta.length) {
       return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
     }
@@ -260,6 +284,7 @@ export const create = async (req, res) => {
 export const update = async (req, res) => {
   try {
     const falta = faltantes(req.body);
+    if (await faltaLaCantidad(req.body)) falta.push("la cantidad");
     if (falta.length) {
       return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
     }
@@ -281,6 +306,24 @@ export const update = async (req, res) => {
     await registrarLecturaDeParte(parte, { centro }).catch((e) =>
       console.error("No se pudo registrar la lectura del parte:", e.message)
     );
+    res.json(parte);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Alterna el estado del trabajo (en proceso / terminado) desde la tabla, sin
+// pasar por la validación del parte entero: es lo único que cambia.
+export const setTerminado = async (req, res) => {
+  try {
+    const parte = await conRelaciones(
+      ParteDiario.findByIdAndUpdate(
+        req.params.id,
+        { terminado: Boolean(req.body.terminado) },
+        { new: true, runValidators: true }
+      )
+    );
+    if (!parte) return res.status(404).json({ error: "Parte no encontrado" });
     res.json(parte);
   } catch (error) {
     res.status(400).json({ error: error.message });

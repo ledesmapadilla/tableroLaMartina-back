@@ -20,8 +20,12 @@ const ParteDiarioSchema = new Schema(
     // instante, y el turno puede cruzar la medianoche (22:00 → 06:00).
     horaIngreso: { type: String, trim: true, default: "" },
     horaEgreso: { type: String, trim: true, default: "" },
-    // Diferencia entre ingreso y egreso. Lo calcula el backend, es lo único
-    // que no se carga a mano.
+    // El segundo tramo del día: en San Pablo se corta al mediodía y se retoma
+    // a la tarde (17/09/2026). En Caspinchango van vacíos.
+    horaIngreso2: { type: String, trim: true, default: "" },
+    horaEgreso2: { type: String, trim: true, default: "" },
+    // La suma de los dos tramos. Lo calcula el backend, es lo único que no se
+    // carga a mano.
     totalHoras: { type: Number, default: 0 },
 
     // Horómetro de la máquina al entrar y salir del centro de costo. A
@@ -33,6 +37,9 @@ const ParteDiarioSchema = new Schema(
     horasCC: { type: Number, default: 0 },
 
     lote: { type: String, trim: true, default: "" },
+    // Si el trabajo quedó terminado o sigue en proceso. Se alterna desde la
+    // tabla con el círculo verde / rojo (17/09/2026).
+    terminado: { type: Boolean, default: false },
     observacion: { type: String, trim: true, default: "" },
 
     // Un parte con fecha posterior al cierre de un mes va al certificado

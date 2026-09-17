@@ -25,6 +25,7 @@ import tareasRouter from "./tareas.routes.js";
 import partesRouter from "./partes.routes.js";
 import periodosRouter from "./periodos.routes.js";
 import variablesRouter from "./variables.routes.js";
+import lotesRouter from "./lotes.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
@@ -152,6 +153,8 @@ router.use("/tareas", escribirSi(["altas.tareas"]), tareasRouter);
 router.use("/partes", escribirSi(["produccion.certificacion"]), partesRouter);
 router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter);
 router.use("/variables", escribirSi(["produccion.variables"]), variablesRouter);
+// Los lotes se dan de alta adentro de Variables, con sus cantidades.
+router.use("/lotes", escribirSi(["produccion.variables"]), lotesRouter);
 router.use("/descuentos", escribirSi(["produccion.contable"]), descuentosRouter);
 router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
 router.use("/pendientes", pendientesRouter);
