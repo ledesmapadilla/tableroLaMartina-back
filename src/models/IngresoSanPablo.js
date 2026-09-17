@@ -23,14 +23,14 @@ const IngresoSanPabloSchema = new Schema(
     // Para qué cosecha se prepara el equipo (2027, 2028…). Lo cargado hasta el
     // 16/09/2026 quedó en la 2027.
     cosecha: { type: Number, required: true, min: 2027 },
-    // Las escaleras nuevas (hechas en el taller) y las bajas no van con ningún
-    // carro.
+    // Las escaleras nuevas (hechas en el taller), las que entran sin carro y
+    // las bajas no van con ningún carro.
     cc: {
       type: Schema.Types.ObjectId,
       ref: "CentroCosto",
       default: null,
       required() {
-        return !this.nuevas && !this.baja;
+        return !this.nuevas && !this.baja && !this.sinCarro;
       },
     },
     fechaIngreso: { type: Date, required: true },
@@ -54,6 +54,9 @@ const IngresoSanPabloSchema = new Schema(
     // Van sin carro; `cantidadEscaleras` es cuántas e `ingresadoPor`, quién las
     // hizo.
     nuevas: { type: Boolean, default: false },
+    // En Escaleras: escaleras que entran al taller sin carro ("Ingreso sin
+    // carro"). `cantidadEscaleras` es cuántas e `ingresadoPor`, quién las trae.
+    sinCarro: { type: Boolean, default: false },
     // En Escaleras: un retiro ("Retiro de escaleras"). `cc` es el carro que se
     // las lleva, `cantidadEscaleras` cuántas e `ingresadoPor` el supervisor.
     retiro: { type: Boolean, default: false },

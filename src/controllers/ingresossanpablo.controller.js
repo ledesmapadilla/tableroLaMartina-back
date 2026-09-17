@@ -79,7 +79,8 @@ const controlarCantidades = ({ cantidadEscaleras, escalerasSanas, escalerasRotas
   return null;
 };
 
-// Lo que se carga en "Nuevas escaleras" y en "Retiro de escaleras".
+// Lo que se carga en "Nuevas escaleras", en "Ingreso sin carro" y en "Retiro
+// de escaleras".
 const DE_NUEVAS = ["fechaIngreso", "ingresadoPor", "cantidadEscaleras", "observaciones"];
 const DE_RETIRO = [...DE_NUEVAS, "cc"];
 // Lo que se carga en "Baja de escaleras".
@@ -187,6 +188,12 @@ export const create = async (req, res) => {
       }
       return res.status(201).json(await ingreso.populate(POPULATE));
     }
+    if (req.body.tipo === ESCALERAS && req.body.sinCarro) {
+      const datos = soloCampos(datosDe(req.body), DE_NUEVAS);
+      if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras entran" });
+      const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, sinCarro: true, cc: null });
+      return res.status(201).json(ingreso);
+    }
     if (req.body.tipo === ESCALERAS) {
       const datos = soloCampos(datosDe(req.body), DE_NUEVAS);
       if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras nuevas son" });
@@ -200,6 +207,7 @@ export const create = async (req, res) => {
       if (repetido) return res.status(400).json({ error: repetido });
       const egreso = controlarEgreso(datos);
       if (egreso) return res.status(400).json({ error: egreso });
+      if (!datos.ingresadoPor) return res.status(400).json({ error: "Poné quién ingresa el carro" });
     }
     const ingreso = await IngresoSanPablo.create(datos);
     if (ingreso.tipo === CARROS) {
@@ -247,10 +255,12 @@ export const update = async (req, res) => {
         const retirado = await carroYaRetirado(actual.cosecha, datos.cc, actual._id);
         if (retirado) return res.status(400).json({ error: retirado });
       }
-    } else if (actual.tipo === ESCALERAS && actual.nuevas) {
+    } else if (actual.tipo === ESCALERAS && (actual.nuevas || actual.sinCarro)) {
       datos = soloCampos(datos, DE_NUEVAS);
       if ("cantidadEscaleras" in datos && !(datos.cantidadEscaleras > 0)) {
-        return res.status(400).json({ error: "Poné cuántas escaleras nuevas son" });
+        return res.status(400).json({
+          error: actual.nuevas ? "Poné cuántas escaleras nuevas son" : "Poné cuántas escaleras entran",
+        });
       }
     } else if (actual.tipo === ESCALERAS && actual.origen) {
       for (const campo of DEL_CARRO) delete datos[campo];
@@ -270,6 +280,9 @@ export const update = async (req, res) => {
     if (actual.tipo === CARROS) {
       const egreso = controlarEgreso({ ...actual.toObject(), ...datos });
       if (egreso) return res.status(400).json({ error: egreso });
+      if ("ingresadoPor" in datos && !datos.ingresadoPor) {
+        return res.status(400).json({ error: "Poné quién ingresa el carro" });
+      }
     }
 
     const ingreso = await IngresoSanPablo.findByIdAndUpdate(req.params.id, datos, {
