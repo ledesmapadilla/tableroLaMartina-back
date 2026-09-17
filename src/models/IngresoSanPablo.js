@@ -34,6 +34,9 @@ const IngresoSanPabloSchema = new Schema(
       },
     },
     fechaIngreso: { type: Date, required: true },
+    // En Carros porta escaleras: el día que el carro sale del taller (vacío
+    // mientras sigue adentro).
+    fechaEgreso: { type: Date, default: null },
     ingresadoPor: { type: String, trim: true, default: "" },
     revisada: { type: Boolean, default: false },
     planMantenimiento: { type: Boolean, default: false },

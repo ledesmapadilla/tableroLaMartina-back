@@ -14,6 +14,7 @@ const datosDe = (body) => {
   const datos = {};
   if ("cc" in body) datos.cc = body.cc || null;
   if ("fechaIngreso" in body) datos.fechaIngreso = body.fechaIngreso || null;
+  if ("fechaEgreso" in body) datos.fechaEgreso = body.fechaEgreso || null;
   if ("ingresadoPor" in body) datos.ingresadoPor = limpiar(body.ingresadoPor);
   if ("revisada" in body) datos.revisada = Boolean(body.revisada);
   if ("planMantenimiento" in body) datos.planMantenimiento = Boolean(body.planMantenimiento);
@@ -26,6 +27,12 @@ const datosDe = (body) => {
   if ("observaciones" in body) datos.observaciones = limpiar(body.observaciones);
   return datos;
 };
+
+// El carro no puede salir antes de haber entrado.
+const controlarEgreso = ({ fechaIngreso, fechaEgreso }) =>
+  fechaIngreso && fechaEgreso && new Date(fechaEgreso) < new Date(fechaIngreso)
+    ? "La fecha de egreso no puede ser anterior a la de ingreso"
+    : null;
 
 const ccInexistente = async (id) => Boolean(id) && !(await CentroCosto.exists({ _id: id }));
 
@@ -179,6 +186,8 @@ export const create = async (req, res) => {
     if (datos.tipo === CARROS) {
       const repetido = await carroYaIngresado(cosecha, datos.cc);
       if (repetido) return res.status(400).json({ error: repetido });
+      const egreso = controlarEgreso(datos);
+      if (egreso) return res.status(400).json({ error: egreso });
     }
     const ingreso = await IngresoSanPablo.create(datos);
     if (ingreso.tipo === CARROS) {
@@ -241,6 +250,10 @@ export const update = async (req, res) => {
     if (actual.tipo === CARROS && "cc" in datos) {
       const repetido = await carroYaIngresado(actual.cosecha, datos.cc, actual._id);
       if (repetido) return res.status(400).json({ error: repetido });
+    }
+    if (actual.tipo === CARROS) {
+      const egreso = controlarEgreso({ ...actual.toObject(), ...datos });
+      if (egreso) return res.status(400).json({ error: egreso });
     }
 
     const ingreso = await IngresoSanPablo.findByIdAndUpdate(req.params.id, datos, {
