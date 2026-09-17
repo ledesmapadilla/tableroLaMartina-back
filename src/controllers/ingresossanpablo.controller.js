@@ -127,6 +127,16 @@ const carroYaIngresado = async (cosecha, cc, ignorarId = null) => {
   return otro ? `El carro ${otro.cc?.cc || ""} ya tiene un ingreso en la cosecha ${cosecha}` : null;
 };
 
+// Un carro se lleva escaleras una sola vez por cosecha. `ignorarId` es el
+// retiro que se está editando.
+const carroYaRetirado = async (cosecha, cc, ignorarId = null) => {
+  if (!cc) return null;
+  const otro = await IngresoSanPablo.findOne({ cosecha, tipo: ESCALERAS, retiro: true, cc, _id: { $ne: ignorarId } })
+    .populate(POPULATE)
+    .lean();
+  return otro ? `El carro ${otro.cc?.cc || ""} ya tiene un retiro en la cosecha ${cosecha}` : null;
+};
+
 // GET /?cosecha=2027&tipo=manitous — los más nuevos primero.
 export const getAll = async (req, res) => {
   try {
@@ -163,6 +173,8 @@ export const create = async (req, res) => {
       if (!datos.cc || (await ccInexistente(datos.cc))) {
         return res.status(400).json({ error: "Elegí el carro porta escaleras del retiro" });
       }
+      const retirado = await carroYaRetirado(cosecha, datos.cc);
+      if (retirado) return res.status(400).json({ error: retirado });
       const aviso = await controlarSalida(cosecha, datos.cantidadEscaleras, "retirar");
       if (aviso) return res.status(400).json({ error: aviso });
       const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, retiro: true });
@@ -231,6 +243,10 @@ export const update = async (req, res) => {
         if (aviso) return res.status(400).json({ error: aviso });
       }
       if ("cc" in datos && !datos.cc) return res.status(400).json({ error: "Elegí el carro porta escaleras del retiro" });
+      if ("cc" in datos) {
+        const retirado = await carroYaRetirado(actual.cosecha, datos.cc, actual._id);
+        if (retirado) return res.status(400).json({ error: retirado });
+      }
     } else if (actual.tipo === ESCALERAS && actual.nuevas) {
       datos = soloCampos(datos, DE_NUEVAS);
       if ("cantidadEscaleras" in datos && !(datos.cantidadEscaleras > 0)) {
