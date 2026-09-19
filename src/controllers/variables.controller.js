@@ -1,14 +1,7 @@
 import mongoose from "mongoose";
 import VariableTarea from "../models/VariableTarea.js";
 import Tarea from "../models/Tarea.js";
-import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
-
-// El establecimiento llega por query o en el cuerpo. Sin el se asume
-// Caspinchango, que es el unico que existia antes de separar los campos.
-const clave = (valor) => {
-  const c = (valor || "").trim();
-  return CLAVES.includes(c) ? c : POR_DEFECTO;
-};
+import { POR_DEFECTO } from "../models/Establecimiento.js";
 
 
 const RELACIONES = { path: "tarea", select: "tarea unidad empresa" };
@@ -57,11 +50,12 @@ const queFalta = (datos) => {
 // cada tarea es la que está rigiendo.
 export const getAll = async (req, res) => {
   try {
-    // Los precios son por establecimiento: la misma tarea puede valer
-    // distinto en cada campo.
-    const filtro = { establecimiento: clave(req.query.establecimiento) };
-
-    const variables = await VariableTarea.find(filtro)
+    // El precio de una tarea es uno solo para todo Producción (18/09/2026):
+    // dejó de distinguir campo, igual que ya había dejado de distinguir
+    // cliente. Por eso no se filtra por establecimiento y el historial de los
+    // dos campos queda mezclado en una sola línea de tiempo. Las cargas viejas
+    // conservan el campo en el que se hicieron, pero solo como dato.
+    const variables = await VariableTarea.find()
       .populate(RELACIONES)
       .sort({ vigenciaDesde: -1, fecha: -1, createdAt: -1 });
 
@@ -89,8 +83,11 @@ export const create = async (req, res) => {
     const error = queFalta(datos);
     if (error) return res.status(400).json({ error });
 
+    // El precio vale para todos los campos, así que el establecimiento de una
+    // carga nueva es solo el que pide el modelo: nadie lo lee para buscar el
+    // precio.
     const variable = new VariableTarea({
-      establecimiento: clave(req.body.establecimiento),
+      establecimiento: POR_DEFECTO,
       tarea,
       ...datos,
     });

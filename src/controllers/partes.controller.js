@@ -8,6 +8,11 @@ import {
 import CentroCosto from "../models/CentroCosto.js";
 import Tarea from "../models/Tarea.js";
 import {
+  recalcularLote,
+  referenciaDeLote,
+  cierresDeLotes,
+} from "../services/repartoLotes.service.js";
+import {
   validarLectura,
   contextoDeHorometro,
   parsearHorometro,
@@ -73,6 +78,34 @@ const calcularTotalHoras = (body) => {
   return Math.round((minutos / 60) * 100) / 100;
 };
 
+// Los dos tramos del día no se pueden pisar: el segundo arranca cuando terminó
+// el primero (San Pablo, 18/09/2026). Todo se mide desde la entrada del primer
+// tramo, así la cuenta también vale para un turno que cruzó la medianoche.
+//
+// Con la salida del primer tramo sin cargar no hay nada que controlar: ese
+// tramo todavía no dura nada.
+export const tramosSeSolapan = (body) => {
+  const inicio1 = aMinutos(body.horaIngreso);
+  const inicio2 = aMinutos(body.horaIngreso2);
+  if (inicio1 === null || inicio2 === null) return false;
+
+  // El segundo tramo tampoco puede arrancar antes que el primero: eso es la
+  // jornada cargada al revés. La única vez que vale es cuando el primero cruzó
+  // la medianoche, porque ahí las 03:00 del segundo son más tarde que las
+  // 22:00 del primero.
+  const fin1 = aMinutos(body.horaEgreso);
+  const cruzaMedianoche = fin1 !== null && fin1 < inicio1;
+  if (!cruzaMedianoche && inicio2 < inicio1) return true;
+
+  const dura1 = minutosDelTramo(body.horaIngreso, body.horaEgreso);
+  // Cuánto después del primer tramo arranca el segundo.
+  const despues = (inicio2 - inicio1 + 1440) % 1440;
+  if (despues < dura1) return true;
+
+  // Y no puede dar la vuelta al reloj y pisar al primero por el otro lado.
+  return despues + minutosDelTramo(body.horaIngreso2, body.horaEgreso2) > 1440;
+};
+
 const sinCantidad = (body) =>
   body.cantidad === "" || body.cantidad === null || body.cantidad === undefined;
 
@@ -83,12 +116,22 @@ export const TAREAS_SIN_CANTIDAD = ["desmalezado", "herbicida"];
 const sinAcentos = (t) =>
   (t || "").toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 
-const faltaLaCantidad = async (body) => {
+// La tarea del padrón, leída una sola vez por parte guardado: la usan la
+// validación de la cantidad y el pago por lote terminado. Solo hace falta en
+// San Pablo, y solo cuando la cantidad viene vacía o el parte tiene lote: en
+// Caspinchango, que es la planilla grande, guardar no paga esta consulta.
+const buscarTareaDelParte = async (body) => {
+  if (clave(body.establecimiento) !== "san-pablo") return null;
+  if (!sinCantidad(body) && !(body.lote || "").trim()) return null;
+  if (!mongoose.isValidObjectId(body.tarea)) return null;
+  return Tarea.findById(body.tarea).select("tarea unidad").lean();
+};
+
+const faltaLaCantidad = (body, tareaDelPadron) => {
   if (!sinCantidad(body)) return false;
   if (clave(body.establecimiento) !== "san-pablo") return true;
-  if (!mongoose.isValidObjectId(body.tarea)) return true;
-  const tarea = await Tarea.findById(body.tarea).select("tarea").lean();
-  const nombre = sinAcentos(tarea?.tarea);
+  if (!tareaDelPadron) return true;
+  const nombre = sinAcentos(tareaDelPadron.tarea);
   return !TAREAS_SIN_CANTIDAD.some((t) => nombre.includes(t));
 };
 
@@ -106,11 +149,22 @@ const faltantes = (body) => {
 // El CC del parte, con su tractor. Lo necesitan la validación del CC, la del
 // horómetro y el registro de la lectura: se lee una vez y se pasa a las tres.
 // Un CC vacío es válido (no es obligatorio); uno inventado no.
-const buscarCentroDelParte = async (cc) => {
-  if (!cc) return { ok: true, centro: null };
-  if (!mongoose.isValidObjectId(cc)) return { ok: false, centro: null };
-  const centro = await CentroCosto.findById(cc).populate("tractor", "cc");
-  return { ok: Boolean(centro), centro };
+//
+// El tractor se trae solo si el parte tiene alguna lectura de horómetro: sin
+// lecturas no lo mira nadie, y ese populate es otra ida y vuelta al cluster en
+// cada parte que se guarda (18/09/2026). `conTractor` avisa si vino, para no
+// pasar un centro a medio leer a quien sí lo necesita.
+const buscarCentroDelParte = async (cc, body = null) => {
+  if (!cc) return { ok: true, centro: null, conTractor: true };
+  if (!mongoose.isValidObjectId(cc)) return { ok: false, centro: null, conTractor: false };
+
+  const conTractor =
+    !body ||
+    parsearHorometro(body.horomIngreso) !== null ||
+    parsearHorometro(body.horomSalida) !== null;
+  const consulta = CentroCosto.findById(cc);
+  const centro = await (conTractor ? consulta.populate("tractor", "cc") : consulta);
+  return { ok: Boolean(centro), centro, conTractor };
 };
 
 // El establecimiento llega por query o en el cuerpo. Sin el se asume
@@ -143,6 +197,15 @@ const armarDatos = (body) => {
   datos.motivoFueraDeCierre = datos.periodo ? String(body.motivoFueraDeCierre || "").trim() : "";
   return datos;
 };
+
+// Cargar, editar o borrar una jornada cambia el reparto del lote si el grupo
+// ya está cerrado (las horas que se reparten son otras). Nunca debe voltear el
+// guardado del parte: se rehace aparte y, si falla, queda en el log.
+const rehacerReparto = (referencia) =>
+  recalcularLote(referencia).catch((e) => {
+    console.error("No se pudo rehacer el pago por lote:", e.message);
+    return { estado: "nada" };
+  });
 
 const RELACIONES = [
   { path: "persona", select: "apellidoNombre dni legajo" },
@@ -180,9 +243,11 @@ export const getAll = async (req, res) => {
       filtro.$or = [{ periodo }, { fecha: rango, periodo: { $in: [null, ""] } }];
     }
 
-    // El informe de tareas por personal solo suma cantidades y filtra: no le
+    // El informe de tareas por personal suma cantidades, horas y filtra: no le
     // sirven los horarios, los horómetros ni el combustible. Con ?resumen=1 se
     // le manda lo justo, que es la mitad del cuerpo y sin hidratar documentos.
+    // Las horas y el lote van porque el informe muestra cómo se repartió la
+    // medida de un lote terminado (18/09/2026).
     // batchSize alto: el cursor trae de a 101 documentos por defecto, así que
     // un mes de partes son dos idas y vueltas al cluster en vez de una. Con la
     // latencia que hay (unos 70 ms por viaje) eso solo costaba ~90 ms.
@@ -190,7 +255,7 @@ export const getAll = async (req, res) => {
     const partes =
       req.query.resumen === "1"
         ? await consulta
-            .select("fecha persona tarea cantidad cliente turbo cc")
+            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido")
             .populate([
               { path: "persona", select: "apellidoNombre legajo" },
               { path: "cc", select: "cc" },
@@ -242,6 +307,17 @@ export const getClientes = async (req, res) => {
   }
 };
 
+// Los lotes que ya se dieron por terminados, con la fecha del cierre y la
+// tarea. La planilla lo pide una vez al abrir el mes y con eso avisa si alguien
+// carga trabajo en un lote terminado, sin tener que preguntar en cada parte.
+export const getCierresDeLotes = async (req, res) => {
+  try {
+    res.json(await cierresDeLotes(clave(req.query.establecimiento)));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const getById = async (req, res) => {
   try {
     const parte = await conRelaciones(ParteDiario.findById(req.params.id));
@@ -254,12 +330,23 @@ export const getById = async (req, res) => {
 
 export const create = async (req, res) => {
   try {
+    // Las dos lecturas son independientes: van juntas para no pagar dos idas y
+    // vueltas al cluster antes de guardar.
+    const [tareaDelPadron, { ok, centro, conTractor }] = await Promise.all([
+      buscarTareaDelParte(req.body),
+      buscarCentroDelParte(req.body.cc, req.body),
+    ]);
+
     const falta = faltantes(req.body);
-    if (await faltaLaCantidad(req.body)) falta.push("la cantidad");
+    if (faltaLaCantidad(req.body, tareaDelPadron)) falta.push("la cantidad");
     if (falta.length) {
       return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
     }
-    const { ok, centro } = await buscarCentroDelParte(req.body.cc);
+    if (tramosSeSolapan(req.body)) {
+      return res.status(400).json({
+        error: "Los dos tramos del día se pisan: la Entrada 2 tiene que ser posterior a la Salida 1",
+      });
+    }
     if (!ok) {
       return res.status(400).json({ error: "El centro de costo no está dado de alta" });
     }
@@ -269,13 +356,27 @@ export const create = async (req, res) => {
 
     const parte = new ParteDiario(armarDatos(req.body));
     await parte.save();
-    // Si el CC es un tractor, la lectura entra a su historial de horómetros.
-    // Nunca debe voltear el alta del parte: se registra aparte.
-    await registrarLecturaDeParte(parte, { centro, nuevo: true }).catch((e) =>
-      console.error("No se pudo registrar la lectura del parte:", e.message)
-    );
-    // Se puebla el documento que ya está en memoria en vez de volver a leerlo.
-    res.status(201).json(await parte.populate(RELACIONES));
+
+    // Las dos cosas que pasan después de guardar son de colecciones distintas
+    // y no se esperan entre sí:
+    // - si el CC es un tractor, la lectura entra a su historial de horómetros
+    //   (nunca debe voltear el alta del parte: se registra aparte);
+    // - una jornada que entra en un lote ya terminado cambia el reparto.
+    const [, reparto] = await Promise.all([
+      registrarLecturaDeParte(parte, { centro: conTractor ? centro : null, nuevo: true }).catch((e) =>
+        console.error("No se pudo registrar la lectura del parte:", e.message)
+      ),
+      rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
+    ]);
+
+    // Si hubo reparto el parte quedó con la cantidad que le tocó y se lo vuelve
+    // a leer; si no, se puebla el documento que ya está en memoria en vez de
+    // pedirlo de nuevo.
+    const guardado =
+      reparto.estado === "repartido"
+        ? await conRelaciones(ParteDiario.findById(parte._id))
+        : await parte.populate(RELACIONES);
+    res.status(201).json({ ...guardado.toObject(), reparto });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -283,12 +384,25 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
+    // Las tres lecturas son independientes y van juntas. `anterior` es cómo
+    // estaba el parte: si cambió de lote o de tarea, el grupo que deja atrás
+    // también hay que rehacerlo.
+    const [tareaDelPadron, { ok, centro, conTractor }, anterior] = await Promise.all([
+      buscarTareaDelParte(req.body),
+      buscarCentroDelParte(req.body.cc, req.body),
+      ParteDiario.findById(req.params.id).select("establecimiento tarea lote fecha").lean(),
+    ]);
+
     const falta = faltantes(req.body);
-    if (await faltaLaCantidad(req.body)) falta.push("la cantidad");
+    if (faltaLaCantidad(req.body, tareaDelPadron)) falta.push("la cantidad");
     if (falta.length) {
       return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
     }
-    const { ok, centro } = await buscarCentroDelParte(req.body.cc);
+    if (tramosSeSolapan(req.body)) {
+      return res.status(400).json({
+        error: "Los dos tramos del día se pisan: la Entrada 2 tiene que ser posterior a la Salida 1",
+      });
+    }
     if (!ok) {
       return res.status(400).json({ error: "El centro de costo no está dado de alta" });
     }
@@ -303,28 +417,24 @@ export const update = async (req, res) => {
       })
     );
     if (!parte) return res.status(404).json({ error: "Parte no encontrado" });
-    await registrarLecturaDeParte(parte, { centro }).catch((e) =>
-      console.error("No se pudo registrar la lectura del parte:", e.message)
-    );
-    res.json(parte);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
 
-// Alterna el estado del trabajo (en proceso / terminado) desde la tabla, sin
-// pasar por la validación del parte entero: es lo único que cambia.
-export const setTerminado = async (req, res) => {
-  try {
-    const parte = await conRelaciones(
-      ParteDiario.findByIdAndUpdate(
-        req.params.id,
-        { terminado: Boolean(req.body.terminado) },
-        { new: true, runValidators: true }
-      )
-    );
-    if (!parte) return res.status(404).json({ error: "Parte no encontrado" });
-    res.json(parte);
+    const cambioDeGrupo =
+      anterior &&
+      (String(anterior.tarea || "") !== String(parte.tarea?._id || "") ||
+        (anterior.lote || "").trim() !== (parte.lote || "").trim());
+
+    const [, , reparto] = await Promise.all([
+      registrarLecturaDeParte(parte, { centro: conTractor ? centro : null }).catch((e) =>
+        console.error("No se pudo registrar la lectura del parte:", e.message)
+      ),
+      cambioDeGrupo ? rehacerReparto(referenciaDeLote(anterior)) : null,
+      rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
+    ]);
+    const guardado =
+      reparto.estado === "repartido"
+        ? await conRelaciones(ParteDiario.findById(parte._id))
+        : parte;
+    res.json({ ...guardado.toObject(), reparto });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -341,7 +451,12 @@ export const remove = async (req, res) => {
       console.error("No se pudo deshacer la lectura del parte:", e.message)
     );
 
-    res.json({ message: "Parte eliminado" });
+    // Las horas que se repartían eran otras: el grupo que queda se rehace sin
+    // esta jornada. Va en la respuesta para que la pantalla sepa si le cambió
+    // algo a las otras filas.
+    const reparto = await rehacerReparto(referenciaDeLote(parte));
+
+    res.json({ message: "Parte eliminado", reparto });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

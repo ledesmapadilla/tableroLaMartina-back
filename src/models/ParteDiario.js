@@ -52,9 +52,15 @@ const ParteDiarioSchema = new Schema(
     motivoFueraDeCierre: { type: String, trim: true, default: "" },
 
     tarea: { type: Schema.Types.ObjectId, ref: "Tarea" },
-    // La cantidad se carga siempre a mano, también cuando la tarea se mide en
-    // horas: puede no coincidir con el total del turno.
+    // La cantidad se carga a mano, también cuando la tarea se mide en horas:
+    // puede no coincidir con el total del turno. La única que no se carga es
+    // la de las tareas que se pagan por lote terminado, que la escribe el
+    // reparto (`repartido`).
     cantidad: { type: Number, default: null },
+    // La escribió el reparto por lote terminado, no una persona (18/09/2026).
+    // Sirve para saber cuál se puede rehacer o borrar sin pisar una carga a
+    // mano (ver `services/repartoLotes.service.js`).
+    repartido: { type: Boolean, default: false },
 
     combustible: { type: Number, default: null },
     // Algunos meses se usa y otros no.
@@ -67,5 +73,9 @@ const ParteDiarioSchema = new Schema(
 
 // Los partes se piden siempre por establecimiento y rango de fechas.
 ParteDiarioSchema.index({ establecimiento: 1, fecha: 1, persona: 1 });
+// El pago por lote terminado busca todas las jornadas de una tarea, en orden,
+// para armar el grupo del lote. Sin esto es un recorrido de toda la colección
+// en cada parte que se guarda (18/09/2026).
+ParteDiarioSchema.index({ establecimiento: 1, tarea: 1, fecha: 1 });
 
 export default model("ParteDiario", ParteDiarioSchema);

@@ -4,9 +4,9 @@ import {
   getById,
   getUltimoHorometro,
   getClientes,
+  getCierresDeLotes,
   create,
   update,
-  setTerminado,
   remove,
 } from "../controllers/partes.controller.js";
 
@@ -16,10 +16,10 @@ router.get("/", getAll);
 // Va antes de "/:id" para que no se la coma esa ruta.
 router.get("/ultimo-horometro/:cc", getUltimoHorometro);
 router.get("/clientes", getClientes);
+router.get("/cierres-de-lotes", getCierresDeLotes);
 router.get("/:id", getById);
 router.post("/", create);
 router.put("/:id", update);
-router.put("/:id/terminado", setTerminado);
 router.delete("/:id", remove);
 
 export default router;
