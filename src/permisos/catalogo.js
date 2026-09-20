@@ -23,6 +23,7 @@ export const PERMISOS_HOY = {
   "compras.analista": SIN_SOLICITANTE,
   "compras.comprador": SIN_SOLICITANTE,
   "compras.gerencia": GERENCIA,
+  "compras.stock": SIN_SOLICITANTE,
 
   // Mantenimiento
   "camionetas.kilometros": TODOS,

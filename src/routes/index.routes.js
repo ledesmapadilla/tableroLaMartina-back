@@ -40,6 +40,7 @@ import usuariosRouter from "./usuario.routes.js";
 import proveedoresRouter from "./proveedor.routes.js";
 import berdinaPedidosRouter from "./berdinaPedido.routes.js";
 import archivosRouter from "./archivos.routes.js";
+import stockRouter from "./stock.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
@@ -180,6 +181,9 @@ router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
 
 // Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
+// El stock del almacen: lo lleva el analista (20/09/2026).
+router.use("/stock", escribirSi(["compras.stock"]), stockRouter);
+
 // Los adjuntos de Compras: la firma para subir a Cloudinary y el borrado.
 router.use("/archivos", archivosRouter);
 
