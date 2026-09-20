@@ -1,4 +1,5 @@
 import SanPabloPedido from '../models/SanPabloPedido.js'
+import { revisarCambioDeItem } from '../permisos/pedidos.js'
 
 // "AAAA-MM-DD" de hoy en Argentina. El servidor corre en UTC: desde las 21 hs
 // su "hoy" ya es mañana y dejaría pasar un pedido con fecha a futuro.
@@ -113,6 +114,17 @@ export const actualizarItem = async (req, res) => {
     // fechaHistorial va aparte de los campos: es el día del cambio de estado
     // (por ejemplo, cuándo se retiró), no la fecha del ítem.
     const { usuario, nota, fechaHistorial, ...campos } = req.body
+
+    // Qué puede tocar este rol (permisos/pedidos.js): las cuatro pantallas del
+    // circuito usan este mismo PUT, así que el permiso de la ruta no alcanza.
+    const actual = await SanPabloPedido.findOne(
+      { _id: req.params.id, 'items._id': req.params.itemId },
+      { 'items.$': 1 }
+    ).lean()
+    if (!actual?.items?.length) return res.status(404).json({ error: 'Pedido o ítem no encontrado.' })
+    const negado = await revisarCambioDeItem(req.usuario?.rol, campos, actual.items[0].estado)
+    if (negado) return res.status(negado.status).json({ error: negado.error })
+
     const setFields = {}
     Object.entries(campos).forEach(([k, v]) => { setFields[`items.$.${k}`] = v })
     const update = { $set: setFields }

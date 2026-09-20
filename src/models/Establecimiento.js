@@ -8,8 +8,13 @@
  * Para sumar uno alcanza con agregarlo acá y en la pantalla de
  * establecimientos del front.
  */
+// El nombre es el que se lee en pantalla: Berdina y Caspinchango son el mismo
+// lugar y el 19/09/2026 se unificó en Berdina, que es como le dicen Compras
+// (la B de los pedidos) y Mantenimiento. La clave quedó como estaba: está
+// guardada en cada documento y en las URLs. La copia del front, que es la que
+// se muestra, está en TableroFront/src/utils/establecimientos.js.
 export const ESTABLECIMIENTOS = [
-  { clave: "caspinchango", nombre: "Caspinchango" },
+  { clave: "caspinchango", nombre: "Berdina" },
   { clave: "san-pablo", nombre: "San Pablo" },
 ];
 

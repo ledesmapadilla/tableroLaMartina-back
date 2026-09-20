@@ -30,6 +30,25 @@ const itemSchema = new mongoose.Schema({
   // Cuál de los tres presupuestos vale (1, 2 o 3). Vacío: el más barato.
   elegido:    { type: Number, min: 1, max: 3 },
   oc:         { type: String },
+  // El adjunto del ítem (19/09/2026): el presupuesto que sube el analista o lo
+  // que suma el taller al pedir. El archivo vive en Cloudinary; acá queda la
+  // URL con la que se abre, el nombre con el que se subió y el public_id con el
+  // que se borra. `tipo` es "image" o "raw" (los PDF), que es lo que pide
+  // Cloudinary para borrarlo.
+  archivo: {
+    type: new mongoose.Schema(
+      {
+        url: { type: String, required: true },
+        nombre: { type: String, trim: true },
+        publicId: { type: String, required: true },
+        tipo: { type: String, enum: ["image", "raw"], default: "image" },
+        subidoPor: { type: String, trim: true },
+        fecha: { type: Date, default: Date.now },
+      },
+      { _id: false }
+    ),
+    default: undefined,
+  },
 })
 
 const pedidoSchema = new mongoose.Schema({

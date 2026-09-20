@@ -26,3 +26,17 @@ export const escribirSi = (claves) => async (req, res, next) => {
     return res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * Pide "Editar" sea cual sea el método, para una lectura que en realidad
+ * habilita a escribir: hoy la firma con la que el navegador sube un adjunto a
+ * Cloudinary, que es un GET pero vale tanto como una escritura.
+ */
+export const exigirEditar = (claves) => async (req, res, next) => {
+  try {
+    if (await puedeRol(req.usuario?.rol, claves, "editar")) return next();
+    return res.status(403).json({ error: "Tu rol no tiene permiso para editar esto" });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};

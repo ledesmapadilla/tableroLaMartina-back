@@ -39,6 +39,7 @@ import authRouter from "./auth.routes.js";
 import usuariosRouter from "./usuario.routes.js";
 import proveedoresRouter from "./proveedor.routes.js";
 import berdinaPedidosRouter from "./berdinaPedido.routes.js";
+import archivosRouter from "./archivos.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
@@ -78,8 +79,8 @@ router.use((req, res, next) =>
  * Quién escribe en cada recurso, según la tabla de Roles (Altas › Usuarios ›
  * Roles): escribirSi() deja pasar las lecturas y a crear, modificar o borrar
  * le pide "Editar" en alguna de esas pantallas. Las claves están en
- * permisos/catalogo.js. Lo que no lleva escribirSi (auth, cron, visitas,
- * pendientes de la reunión) sigue como antes.
+ * permisos/catalogo.js. Lo que no lleva escribirSi (auth, cron, visitas) sigue
+ * como antes.
  */
 const CAMIONETA_TAREAS = ["camionetas.tareas"];
 const TRACTOR_TAREAS = ["tractores.tareas"];
@@ -153,11 +154,12 @@ router.use("/tareas", escribirSi(["altas.tareas"]), tareasRouter);
 router.use("/partes", escribirSi(["produccion.certificacion"]), partesRouter);
 router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter);
 router.use("/variables", escribirSi(["produccion.variables"]), variablesRouter);
-// Los lotes se dan de alta adentro de Variables, con sus cantidades.
-router.use("/lotes", escribirSi(["produccion.variables"]), lotesRouter);
+// Los lotes son una de las tres tarjetas de Variables, con su propio permiso.
+router.use("/lotes", escribirSi(["produccion.lotes"]), lotesRouter);
 router.use("/descuentos", escribirSi(["produccion.contable"]), descuentosRouter);
 router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
-router.use("/pendientes", pendientesRouter);
+// Los pendientes de la reunión: se cargan y se borran desde ahí.
+router.use("/pendientes", escribirSi(["tablero.reunion"]), pendientesRouter);
 // Ingresos al taller de San Pablo (Manitous y las demás tarjetas).
 router.use("/ingresos-sanpablo", escribirSi(["sanpablo.ingresos"]), ingresosSanPabloRouter);
 
@@ -178,6 +180,9 @@ router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
 
 // Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
+// Los adjuntos de Compras: la firma para subir a Cloudinary y el borrado.
+router.use("/archivos", archivosRouter);
+
 router.use("/roles", rolesRouter);
 
 export default router;

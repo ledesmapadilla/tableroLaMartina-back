@@ -18,7 +18,10 @@
     "migrar-compras": "node --env-file .env scripts/migrarCompras.js",
     "renombrar-op": "node --env-file .env scripts/renombrarOCaOP.js",
     "colectivos-patente": "node --env-file .env scripts/colectivosPatenteComoCC.js",
-    "equipo-grupo-cc": "node --env-file .env scripts/equipoYGrupoCC.js"
+    "equipo-grupo-cc": "node --env-file .env scripts/equipoYGrupoCC.js",
+    "probar-cloudinary": "node --env-file .env scripts/probarCloudinary.js",
+    "inventario-cloudinary": "node --env-file .env scripts/inventarioCloudinary.js",
+    "probar-adjunto": "node --env-file .env scripts/probarAdjunto.js"
   },
   "type": "module",
   "keywords": [],

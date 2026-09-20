@@ -39,9 +39,13 @@ export const PERMISOS_HOY = {
   "colectivos.reparaciones": TODOS,
   "mantenimiento.visitas": TODOS,
   "sanpablo.ingresos": TODOS,
+  "tablero.camionetas": TODOS,
+  "tablero.reunion": TODOS,
 
   // Producción
   "produccion.variables": SIN_SOLICITANTE,
+  "produccion.lotes": SIN_SOLICITANTE,
+  "produccion.admisibles": SIN_SOLICITANTE,
   "produccion.certificacion": SIN_SOLICITANTE,
   "produccion.informeMes": SIN_SOLICITANTE,
   "produccion.contable": CONTABLE,
