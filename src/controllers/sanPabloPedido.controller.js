@@ -59,6 +59,13 @@ export const getHistorialGerencia = async (req, res) => {
           _id: i._id,
           nombre_repuesto: i.nombre_repuesto,
           cant: i.cant,
+          // Lo que hace falta para el detalle del pedido, que Gerencia abre
+          // tocando el número (20/09/2026), y el presupuesto adjunto.
+          unidad: i.unidad,
+          descripcion: i.descripcion,
+          cc: i.cc,
+          solicita: i.solicita,
+          archivo: i.archivo,
           urgencia: i.urgencia,
           grupo: i.grupo,
           estado: i.estado,
