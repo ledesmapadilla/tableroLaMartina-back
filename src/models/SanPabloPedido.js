@@ -29,6 +29,19 @@ const itemSchema = new mongoose.Schema({
   precio3:    { type: Number },
   // Cuál de los tres presupuestos vale (1, 2 o 3). Vacío: el más barato.
   elegido:    { type: Number, min: 1, max: 3 },
+  // Un apuro: quien lo reclamó y cuándo (20/09/2026). Lo pone cualquiera que
+  // vea el pedido cuando el siguiente del circuito se está demorando, y el
+  // back lo borra solo cuando el ítem cambia de estado.
+  apuro: {
+    type: new mongoose.Schema(
+      {
+        fecha: { type: Date, default: Date.now },
+        por: { type: String, trim: true },
+      },
+      { _id: false }
+    ),
+    default: undefined,
+  },
   oc:         { type: String },
   // El adjunto del ítem (19/09/2026): el presupuesto que sube el analista o lo
   // que suma el taller al pedir. El archivo vive en Cloudinary; acá queda la

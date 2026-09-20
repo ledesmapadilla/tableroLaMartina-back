@@ -12,6 +12,13 @@ import { puedeRol } from "./resolver.js";
  * Un campo que no figura en ninguna lista no se puede escribir por esta ruta.
  */
 
+/**
+ * El apuro lo puede poner cualquiera de los cuatro: es reclamarle al que tiene
+ * la tarea pendiente, y la pantalla ya se encarga de que nadie se apure a sí
+ * mismo (20/09/2026).
+ */
+const APURO = "apuro";
+
 /** Los datos del pedido: los carga el taller y los corrigen analista y comprador. */
 const CAMPOS_DEL_PEDIDO = [
   "nombre_repuesto",
@@ -26,7 +33,7 @@ const CAMPOS_DEL_PEDIDO = [
 
 export const CAMPOS_POR_PERMISO = {
   // El taller también adjunta en su pedido, no solo el analista (19/09/2026).
-  "compras.pedidos": [...CAMPOS_DEL_PEDIDO, "archivo"],
+  "compras.pedidos": [...CAMPOS_DEL_PEDIDO, "archivo", APURO],
   // El análisis: los tres presupuestos, cuál se elige y lo que hay en stock.
   "compras.analista": [
     ...CAMPOS_DEL_PEDIDO,
@@ -40,11 +47,12 @@ export const CAMPOS_POR_PERMISO = {
     "elegido",
     // El presupuesto del proveedor.
     "archivo",
+    APURO,
   ],
   // `oc` es el número de la orden de pago: lo pone el comprador al armarla.
-  "compras.comprador": [...CAMPOS_DEL_PEDIDO, "oc"],
+  "compras.comprador": [...CAMPOS_DEL_PEDIDO, "oc", APURO],
   // Gerencia autoriza y rechaza: mueve el estado, no carga datos.
-  "compras.gerencia": [],
+  "compras.gerencia": [APURO],
 };
 
 /**

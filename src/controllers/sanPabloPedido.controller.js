@@ -135,6 +135,13 @@ export const actualizarItem = async (req, res) => {
     const setFields = {}
     Object.entries(campos).forEach(([k, v]) => { setFields[`items.$.${k}`] = v })
     const update = { $set: setFields }
+
+    // Un apuro vale mientras el pedido siga esperando lo mismo: apenas cambia
+    // de estado, el reclamo ya no aplica y se borra solo. Nadie tiene que
+    // marcarlo como leído.
+    if (campos.estado && campos.estado !== actual.items[0].estado && !('apuro' in campos)) {
+      update.$unset = { 'items.$.apuro': '' }
+    }
     if (campos.estado) {
       const fecha = fechaHistorial ? new Date(fechaHistorial) : new Date()
       if (Number.isNaN(fecha.getTime())) return res.status(400).json({ error: 'Fecha inválida.' })
