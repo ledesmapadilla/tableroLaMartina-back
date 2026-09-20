@@ -1,7 +1,9 @@
 import mongoose from "mongoose";
 
-// Los mismos roles que Usuario.
-export const ROLES = ["superadmin", "solicitante", "comprador", "analista", "gerente"];
+// Los mismos roles que Usuario. Si se suma uno, va también en el enum de
+// Usuario y en las listas de permisos (acá, permisos/catalogo.js y, en el
+// front, utils/permisos.js y NOMBRES_ROL).
+export const ROLES = ["superadmin", "solicitante", "comprador", "analista", "gerente", "celular"];
 
 // Un permiso: una pantalla o tarjeta del proyecto (la clave sale de
 // TableroFront/src/utils/permisosCatalogo.js) y si el rol la ve y la edita.
