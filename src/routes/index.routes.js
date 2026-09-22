@@ -30,6 +30,7 @@ import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
 import ingresosSanPabloRouter from "./ingresossanpablo.routes.js";
+import stockRouter from "./stock.routes.js";
 
 // Compras. Se unifico con el Tablero el 06/09/2026: comparten base, padron de
 // centros de costo y, mas adelante, login. Ninguna de estas rutas choca con
@@ -40,7 +41,6 @@ import usuariosRouter from "./usuario.routes.js";
 import proveedoresRouter from "./proveedor.routes.js";
 import berdinaPedidosRouter from "./berdinaPedido.routes.js";
 import archivosRouter from "./archivos.routes.js";
-import stockRouter from "./stock.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
@@ -163,6 +163,9 @@ router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
 router.use("/pendientes", escribirSi(["tablero.reunion"]), pendientesRouter);
 // Ingresos al taller de San Pablo (Manitous y las demás tarjetas).
 router.use("/ingresos-sanpablo", escribirSi(["sanpablo.ingresos"]), ingresosSanPabloRouter);
+// El almacén de repuestos. Los rubros cuelgan de /stock y todos llevan el
+// mismo permiso (compras.stock); cuál es cada uno lo sabe stock.routes.js.
+router.use("/stock", escribirSi(["compras.stock"]), stockRouter);
 
 // ── Compras ──
 // Usuarios es solo del superadmin, también para leer: la lista trae las
@@ -180,13 +183,10 @@ router.use("/berdina/pedidos", escribirSi(PEDIDOS), berdinaPedidosRouter);
 router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
 
-// Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
-// El stock del almacen: lo lleva el analista (20/09/2026).
-router.use("/stock", escribirSi(["compras.stock"]), stockRouter);
-
 // Los adjuntos de Compras: la firma para subir a Cloudinary y el borrado.
 router.use("/archivos", archivosRouter);
 
+// Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
 router.use("/roles", rolesRouter);
 
 export default router;
