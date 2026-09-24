@@ -29,6 +29,9 @@ const itemSchema = new mongoose.Schema({
   precio3:    { type: Number },
   // Cuál de los tres presupuestos vale (1, 2 o 3). Vacío: el más barato.
   elegido:    { type: Number, min: 1, max: 3 },
+  // Lo que anota el analista al analizar el ítem: por qué eligió ese
+  // presupuesto, si hay que esperar, lo que sea (22/09/2026).
+  observaciones: { type: String, trim: true },
   // Un apuro: quien lo reclamó y cuándo (20/09/2026). Lo pone cualquiera que
   // vea el pedido cuando el siguiente del circuito se está demorando, y el
   // back lo borra solo cuando el ítem cambia de estado.

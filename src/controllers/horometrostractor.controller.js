@@ -143,6 +143,15 @@ export const registrarLecturaDeReparacion = async (trabajo) => {
   });
 };
 
+// Con qué lectura queda la máquina al terminar el parte: la salida, y si
+// todavía no está cargada, la entrada. Es una sola por parte para no llenar el
+// historial con dos filas del mismo día.
+const lecturaDelParte = (parte) => {
+  const salida = parsearHorometro(parte?.horomSalida);
+  if (salida !== null) return { horometro: salida, campo: "salida" };
+  return { horometro: parsearHorometro(parte?.horomIngreso), campo: "entrada" };
+};
+
 // El horómetro que se carga en un parte de Producción es el del tractor: se
 // materializa en el historial para que el preventivo cuente las horas reales
 // de trabajo y no dependa de que alguien pase de visita.
@@ -154,8 +163,11 @@ export const registrarLecturaDeParte = async (parte, { centro = null, nuevo = fa
   // creado no tiene nada que limpiar.
   if (!nuevo) await HorometroTractor.deleteMany({ parte: parte._id });
 
-  // Se toma la salida: es la lectura con la que la máquina termina el día.
-  const horometro = parsearHorometro(parte?.horomSalida);
+  // Se toma la salida: es la lectura con la que la máquina termina el día. Si
+  // todavía no está cargada vale la entrada (22/09/2026): antes un parte con
+  // solo la entrada no dejaba nada y el preventivo no se enteraba de que la
+  // máquina había trabajado.
+  const { horometro, campo } = lecturaDelParte(parte);
   if (horometro === null || !parte?.cc) return null;
 
   // El CC de Producción solo es un tractor si tiene el enlace cargado. El que
@@ -182,7 +194,7 @@ export const registrarLecturaDeParte = async (parte, { centro = null, nuevo = fa
     horometro,
     origen: "produccion",
     parte: parte._id,
-    observaciones: "Lectura tomada en el parte diario de Producción",
+    observaciones: `Lectura de ${campo} del parte diario de Producción`,
   });
 };
 
@@ -198,7 +210,7 @@ export const borrarLecturaDeParte = async (parte) => {
 
   // Partes cargados antes de que la lectura guardara el enlace: se ubica por
   // el dato, acotado al origen "produccion" para no tocar otras fuentes.
-  const horometro = parsearHorometro(parte.horomSalida);
+  const { horometro } = lecturaDelParte(parte);
   if (horometro === null || !parte.cc) return 0;
 
   const centro = await CentroCosto.findById(parte.cc).select("tractor").lean();

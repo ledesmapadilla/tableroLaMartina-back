@@ -45,6 +45,8 @@ export const CAMPOS_POR_PERMISO = {
     "proveedor3",
     "precio3",
     "elegido",
+    // Lo que anota el analista sobre el ítem (22/09/2026).
+    "observaciones",
     // El presupuesto del proveedor.
     "archivo",
     APURO,

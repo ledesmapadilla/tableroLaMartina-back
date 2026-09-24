@@ -44,6 +44,43 @@ const medidaDelLote = (unidad, lote) => {
   return null;
 };
 
+/**
+ * El desmalezado tiene que ir con la unidad en la que está medido el lote
+ * (regla del usuario, 23/09/2026): un lote en hectáreas se desmaleza "x Ha" y
+ * no "Mecánico", y uno en plantas al revés. Si no coinciden, el reparto no
+ * tendría qué medida repartir. Un lote sin medida o fuera del padrón no se
+ * controla. Devuelve el mensaje de error o null.
+ */
+export const desmalezadoFueraDeUnidad = async ({ establecimiento, lote }, tareaDelPadron) => {
+  if (!tareaDelPadron || !sinAcentos(tareaDelPadron.tarea).includes("desmalezado")) return null;
+  const buscado = comparable(lote);
+  if (!buscado) return null;
+
+  const lotes = await Lote.find({ establecimiento }).select("nombre hectareas plantas").lean();
+  const delPadron = lotes.find((l) => comparable(l.nombre) === buscado);
+  if (!delPadron) return null;
+
+  const enHectareas = delPadron.hectareas != null && delPadron.plantas == null;
+  const enPlantas = delPadron.plantas != null && delPadron.hectareas == null;
+  const unidad = sinAcentos(tareaDelPadron.unidad);
+  const tareaEnHectareas = unidad.startsWith("hectarea") || unidad === "ha";
+  const tareaEnPlantas = unidad.startsWith("planta");
+
+  if (enHectareas && tareaEnPlantas) {
+    return (
+      `El lote "${delPadron.nombre}" está medido en hectáreas: ` +
+      `no va "${tareaDelPadron.tarea}", va el desmalezado x Ha.`
+    );
+  }
+  if (enPlantas && tareaEnHectareas) {
+    return (
+      `El lote "${delPadron.nombre}" está medido en plantas: ` +
+      `no va "${tareaDelPadron.tarea}", va el desmalezado mecánico.`
+    );
+  }
+  return null;
+};
+
 const esTareaDeLote = (nombre) => {
   const n = sinAcentos(nombre);
   return TAREAS_POR_LOTE.some((t) => n.includes(t));

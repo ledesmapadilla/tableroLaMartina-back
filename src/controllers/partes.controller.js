@@ -11,10 +11,12 @@ import {
   recalcularLote,
   referenciaDeLote,
   cierresDeLotes,
+  desmalezadoFueraDeUnidad,
 } from "../services/repartoLotes.service.js";
 import {
   validarLectura,
   contextoDeHorometro,
+  ultimaLecturaAntesDe,
   parsearHorometro,
   calcularHorasCC,
 } from "../services/horometros.service.js";
@@ -270,10 +272,28 @@ export const getAll = async (req, res) => {
   }
 };
 
-// El horómetro de salida de un CC es el de entrada de su próxima carga. La
-// búsqueda es sobre todos los partes, no sobre el período en pantalla: el
-// último horómetro de marzo es el primero de abril. Vive acá y no en el front
-// porque el mismo dato lo va a consultar el sector de tractores.
+// "AAAA-MM-DD": el día de un parte.
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Con qué horómetro quedó un CC: es el que la planilla pone en "Horóm. entra".
+ *
+ * **El horómetro es uno solo para todo el proyecto.** Si el CC está enlazado a
+ * un tractor, la lectura sale de las cinco fuentes juntas —parte diario,
+ * service, reparación, visita y carga manual (`lecturasDeTractor`)—, así que
+ * una lectura tomada en el taller o en una visita es la que arrastra el
+ * próximo parte, y al revés. Un CC sin tractor enlazado no tiene historial de
+ * mantenimiento: ahí se miran solo los partes.
+ *
+ * Con ?fecha=AAAA-MM-DD se busca la última lectura anterior a ese día (o del
+ * mismo día): así cargar o corregir un día atrasado no arrastra el horómetro
+ * de un día posterior que ya está cargado. Sin fecha se toma hoy.
+ *
+ * Devuelve `{ horometro, fecha, fuente, campo }`, y `horomSalida` con el mismo
+ * número por los que ya leían esa clave. `fuente` es la de
+ * `lecturasDeTractor` ("parte", "service", "reparacion", "visita",
+ * "horometro:…"), para poder decir en pantalla de dónde salió.
+ */
 export const getUltimoHorometro = async (req, res) => {
   try {
     const { cc } = req.params;
@@ -281,13 +301,46 @@ export const getUltimoHorometro = async (req, res) => {
       return res.status(400).json({ error: "Centro de costo inválido" });
     }
 
-    const ultimo = await ParteDiario.findOne({ cc, horomSalida: { $ne: null } })
+    const { fecha } = req.query;
+    const dia = DIA.test(String(fecha || "")) ? fecha : null;
+    const sinLectura = { cc, horometro: null, horomSalida: null, fecha: null, fuente: null };
+
+    // El horómetro es de la máquina: el CC lo lleva solo si es un equipo del
+    // padrón de Tractores.
+    const centro = await CentroCosto.findById(cc).populate("tractor", "cc").lean();
+    if (centro?.tractor) {
+      const hasta = dia || new Date();
+      const contexto = await contextoDeHorometro(centro.tractor._id, hasta, centro.tractor);
+      const lectura = await ultimaLecturaAntesDe(centro.tractor._id, hasta, null, contexto);
+      if (!lectura) return res.json(sinLectura);
+      return res.json({
+        cc,
+        horometro: lectura.horometro,
+        horomSalida: lectura.horometro,
+        fecha: lectura.fecha,
+        fuente: lectura.fuente,
+        campo: lectura.campo,
+      });
+    }
+
+    // CC que no es un equipo gestionado: su única historia son los partes.
+    const filtro = { cc, horomSalida: { $ne: null } };
+    if (dia) filtro.fecha = { $lte: new Date(`${dia}T23:59:59.999Z`) };
+
+    const ultimo = await ParteDiario.findOne(filtro)
       .sort({ fecha: -1, createdAt: -1 })
       .select("cc fecha horomSalida")
       .lean();
 
-    if (!ultimo) return res.json({ cc, horomSalida: null, fecha: null });
-    res.json({ cc, horomSalida: ultimo.horomSalida, fecha: ultimo.fecha });
+    if (!ultimo) return res.json(sinLectura);
+    res.json({
+      cc,
+      horometro: ultimo.horomSalida,
+      horomSalida: ultimo.horomSalida,
+      fecha: ultimo.fecha,
+      fuente: "parte",
+      campo: "horomSalida",
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -350,6 +403,8 @@ export const create = async (req, res) => {
     if (!ok) {
       return res.status(400).json({ error: "El centro de costo no está dado de alta" });
     }
+    const unidadMal = await desmalezadoFueraDeUnidad(req.body, tareaDelPadron);
+    if (unidadMal) return res.status(400).json({ error: unidadMal });
 
     const chequeo = await chequearHorometroDelParte(req.body, centro);
     if (!chequeo.ok) return res.status(409).json(chequeo);
@@ -406,6 +461,8 @@ export const update = async (req, res) => {
     if (!ok) {
       return res.status(400).json({ error: "El centro de costo no está dado de alta" });
     }
+    const unidadMal = await desmalezadoFueraDeUnidad(req.body, tareaDelPadron);
+    if (unidadMal) return res.status(400).json({ error: unidadMal });
 
     const chequeo = await chequearHorometroDelParte(req.body, centro, req.params.id);
     if (!chequeo.ok) return res.status(409).json(chequeo);

@@ -1,5 +1,7 @@
 import PeriodoCertificado from "../models/PeriodoCertificado.js";
+import ParteDiario from "../models/ParteDiario.js";
 import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+import { recalcularLote } from "../services/repartoLotes.service.js";
 
 // El establecimiento llega por query. Sin el se asume Caspinchango, que es el
 // unico que existia antes de separar los campos: asi los links viejos y las
@@ -37,28 +39,57 @@ const sugerido = (anio, mes, anterior) => {
   return { desde: diaSiguiente(anterior.hasta), hasta: base.hasta };
 };
 
-// Mover la fecha de cierre de un mes (o cerrarlo) corre el arranque del
-// siguiente. Solo se toca si el que sigue está abierto: un certificado cerrado
-// no se mueve solo.
-const correrArranqueDelSiguiente = async (periodo) => {
-  if (!periodo?.hasta) return;
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+const ddmmaaaa = (fecha) => new Date(fecha).toISOString().slice(0, 10).split("-").reverse().join("/");
+const diaAnterior = (fecha) => new Date(new Date(fecha).getTime() - UN_DIA);
+const mismoDia = (a, b) => a && b && new Date(a).getTime() === new Date(b).getTime();
 
-  const { anio, mes } = mesSiguiente(periodo.anio, periodo.mes);
-  const siguiente = await PeriodoCertificado.findOne({
-    establecimiento: periodo.establecimiento,
-    anio,
-    mes,
-  });
-  if (!siguiente || siguiente.cerrado) return;
-
-  const desde = diaSiguiente(periodo.hasta);
-  if (siguiente.desde?.getTime() === desde.getTime()) return;
-  // El "hasta" del siguiente se respeta salvo que el nuevo arranque lo pase
-  // por delante, que solo puede pasar con un corte cargado mal.
-  if (siguiente.hasta < desde) siguiente.hasta = desde;
-  siguiente.desde = desde;
-  await siguiente.save();
+/**
+ * Los días que cambian de mes cuando un corte pasa de `antes` a `despues`
+ * (los dos son fechas de cierre). Null si el corte no se movió.
+ */
+const diasQueCambian = (antes, despues) => {
+  if (mismoDia(antes, despues)) return null;
+  const [a, b] = antes < despues ? [antes, despues] : [despues, antes];
+  return { $gte: diaSiguiente(a), $lte: new Date(new Date(b).getTime() + UN_DIA - 1) };
 };
+
+// Los partes que caen en un mes por su fecha. Los que alguien dejó a mano en
+// otro mes, con su explicación (`periodo`), no se mueven con el corte.
+const partesPorFecha = (establecimiento, fecha) => ({
+  establecimiento,
+  fecha,
+  periodo: { $in: [null, ""] },
+});
+
+/**
+ * El pago por lote terminado guarda en cada jornada el mes en que se cobra
+ * (`periodo` con MOTIVO_REPARTO), calculado con los cortes. Si un corte se
+ * mueve, esos grupos se rehacen con los cortes nuevos. Solo San Pablo tiene
+ * reparto; recalcularLote ya se corta en los otros campos.
+ */
+const rehacerRepartos = async (establecimiento, rangos) => {
+  const fechas = rangos.filter(Boolean);
+  if (establecimiento !== "san-pablo" || !fechas.length) return;
+  const partes = await ParteDiario.find({
+    establecimiento,
+    repartido: true,
+    $or: fechas.map((fecha) => ({ fecha })),
+  })
+    .select("tarea lote fecha")
+    .lean();
+  const hechos = new Set();
+  for (const p of partes) {
+    const clave = `${p.tarea}|${p.lote}|${p.fecha.toISOString()}`;
+    if (hechos.has(clave)) continue;
+    hechos.add(clave);
+    await recalcularLote({ establecimiento, tarea: p.tarea, lote: p.lote, fecha: p.fecha });
+  }
+};
+
 
 export const getPeriodo = async (req, res) => {
   try {
@@ -136,6 +167,23 @@ export const getPeriodosDelAnio = async (req, res) => {
   }
 };
 
+
+/**
+ * Guarda el corte de un mes. Entre dos meses hay un solo corte (regla del
+ * usuario, 23/09/2026): el inicio de un mes es siempre el día siguiente al
+ * cierre del anterior. Por eso mover el inicio corre el cierre del mes
+ * anterior, y mover el cierre corre el inicio del siguiente. No queda ningún
+ * día sin mes ni ningún día en dos meses.
+ *
+ * Los partes van solos: cada uno cae en el mes que le toca por su fecha, así
+ * que al moverse el corte los del medio pasan de un mes al otro. Los que
+ * alguien dejó a mano en un mes con su explicación no se mueven, y los del
+ * pago por lote terminado se rehacen con los cortes nuevos.
+ *
+ * Un vecino cerrado también se corre, aunque le saque o le meta partes (lo
+ * pidió el usuario el 23/09/2026: la regla va primero). La respuesta lo
+ * marca para que la pantalla lo avise.
+ */
 export const guardarPeriodo = async (req, res) => {
   try {
     const anio = Number(req.params.anio);
@@ -158,19 +206,109 @@ export const guardarPeriodo = async (req, res) => {
       cambios.fechaCierre = cerrado && fechaCierre ? new Date(fechaCierre) : null;
     }
 
+    const previo = mesAnterior(anio, mes);
+    const prox = mesSiguiente(anio, mes);
+    const [actual, anterior, siguiente] = await Promise.all([
+      PeriodoCertificado.findOne({ establecimiento, anio, mes }).lean(),
+      PeriodoCertificado.findOne({ establecimiento, ...previo }),
+      PeriodoCertificado.findOne({ establecimiento, ...prox }),
+    ]);
+    const esteMes = MESES[mes - 1];
+    const mesPrevio = MESES[previo.mes - 1];
+    const mesProx = MESES[prox.mes - 1];
+
+    // ── el corte con el mes anterior ──
+    const cierreAnterior = diaAnterior(cambios.desde);
+    const cierreAnteriorViejo = anterior?.hasta || porDefecto(previo.anio, previo.mes).hasta;
+    // Un anterior que nunca se guardó arranca donde lo encadena el suyo.
+    const inicioAnterior =
+      anterior?.desde ||
+      sugerido(
+        previo.anio,
+        previo.mes,
+        await PeriodoCertificado.findOne({ establecimiento, ...mesAnterior(previo.anio, previo.mes) }).lean()
+      ).desde;
+    if (cierreAnterior < inicioAnterior) {
+      return res.status(400).json({
+        error:
+          `${mesPrevio[0].toUpperCase()}${mesPrevio.slice(1)} arranca el ${ddmmaaaa(inicioAnterior)}: ` +
+          `el inicio de ${esteMes} tiene que ser posterior.`,
+      });
+    }
+    const diasConElAnterior = diasQueCambian(cierreAnteriorViejo, cierreAnterior);
+
+    // ── el corte con el mes siguiente ──
+    const inicioSiguiente = diaSiguiente(cambios.hasta);
+    const cierreSiguiente = siguiente?.hasta || porDefecto(prox.anio, prox.mes).hasta;
+    if (inicioSiguiente > cierreSiguiente) {
+      return res.status(400).json({
+        error:
+          `${mesProx[0].toUpperCase()}${mesProx.slice(1)} cierra el ${ddmmaaaa(cierreSiguiente)}: ` +
+          `el cierre de ${esteMes} tiene que ser anterior.`,
+      });
+    }
+    // Un siguiente sin guardar arranca, por el encadenado, después del cierre
+    // que tenía este mes.
+    const cierreViejo = siguiente
+      ? diaAnterior(siguiente.desde)
+      : actual?.hasta || porDefecto(anio, mes).hasta;
+    const diasConElSiguiente = diasQueCambian(cierreViejo, cambios.hasta);
+
+    const [movidosAnterior, movidosSiguiente] = await Promise.all(
+      [diasConElAnterior, diasConElSiguiente].map((dias) =>
+        dias ? ParteDiario.countDocuments(partesPorFecha(establecimiento, dias)) : 0
+      )
+    );
+
     const periodo = await PeriodoCertificado.findOneAndUpdate(
       { establecimiento, anio, mes },
       cambios,
       { new: true, upsert: true, runValidators: true }
     );
 
-    // El mes siguiente tiene que arrancar al día siguiente del cierre. No debe
-    // voltear el guardado: el período de este mes ya quedó bien.
-    await correrArranqueDelSiguiente(periodo).catch((e) =>
-      console.error("No se pudo correr el arranque del mes siguiente:", e.message)
-    );
+    let corrioAnterior = false;
+    if (anterior && !mismoDia(anterior.hasta, cierreAnterior)) {
+      anterior.hasta = cierreAnterior;
+      await anterior.save();
+      corrioAnterior = true;
+    } else if (!anterior && !mismoDia(cierreAnteriorViejo, cierreAnterior)) {
+      // El anterior nunca se guardó y su corte por defecto ya no sirve: se lo
+      // guarda con el cierre que le toca.
+      await PeriodoCertificado.create({
+        establecimiento,
+        ...previo,
+        desde: inicioAnterior,
+        hasta: cierreAnterior,
+      });
+      corrioAnterior = true;
+    }
 
-    res.json(periodo);
+    let corrioSiguiente = false;
+    if (siguiente && !mismoDia(siguiente.desde, inicioSiguiente)) {
+      siguiente.desde = inicioSiguiente;
+      await siguiente.save();
+      corrioSiguiente = true;
+    }
+
+    // Los rangos viejos de este mismo mes también entran: si venía con un
+    // corte desparejo, sus partes también cambian de mes.
+    await rehacerRepartos(establecimiento, [
+      diasConElAnterior,
+      diasConElSiguiente,
+      actual && diasQueCambian(diaAnterior(actual.desde), cierreAnterior),
+      actual && diasQueCambian(actual.hasta, cambios.hasta),
+    ]).catch((e) => console.error("No se pudo rehacer el pago por lote terminado:", e.message));
+
+    // Lo que se corrió en los vecinos va en la respuesta para avisarlo en
+    // pantalla; el resto es el período.
+    res.json({
+      ...periodo.toObject(),
+      cierreAnterior: corrioAnterior ? cierreAnterior : null,
+      inicioSiguiente: corrioSiguiente ? inicioSiguiente : null,
+      anteriorCerrado: corrioAnterior && Boolean(anterior?.cerrado),
+      siguienteCerrado: corrioSiguiente && Boolean(siguiente?.cerrado),
+      partesMovidos: movidosAnterior + movidosSiguiente,
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
