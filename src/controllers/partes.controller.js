@@ -142,6 +142,8 @@ const faltantes = (body) => {
   if (!body.fecha) falta.push("la fecha");
   if (!body.persona) falta.push("la persona");
   if (!body.tarea) falta.push("la tarea");
+  // Terminado es el lote terminado: sin lote no se puede marcar (24/09/2026).
+  if (body.terminado && !String(body.lote || "").trim()) falta.push("el lote del parte terminado");
   // La cantidad se controla aparte (`faltaLaCantidad`): en San Pablo hay
   // tareas que no la llevan y para saberlo hay que mirar el padrón.
   if (!sinCantidad(body) && isNaN(Number(body.cantidad))) falta.push("una cantidad válida");

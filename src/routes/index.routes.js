@@ -26,6 +26,7 @@ import partesRouter from "./partes.routes.js";
 import periodosRouter from "./periodos.routes.js";
 import variablesRouter from "./variables.routes.js";
 import lotesRouter from "./lotes.routes.js";
+import admisiblesRouter from "./admisibles.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
@@ -157,6 +158,8 @@ router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter
 router.use("/variables", escribirSi(["produccion.variables"]), variablesRouter);
 // Los lotes son una de las tres tarjetas de Variables, con su propio permiso.
 router.use("/lotes", escribirSi(["produccion.lotes"]), lotesRouter);
+// Los valores admisibles, la tercera tarjeta de Variables (24/09/2026).
+router.use("/admisibles", escribirSi(["produccion.admisibles"]), admisiblesRouter);
 router.use("/descuentos", escribirSi(["produccion.contable"]), descuentosRouter);
 router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
 // Los pendientes de la reunión: se cargan y se borran desde ahí.
