@@ -4,7 +4,7 @@ import { campoEstablecimiento } from "./Establecimiento.js";
 // Los lotes de cada campo (17/09/2026).
 //
 // Hasta ahora el lote era texto libre en el parte. Se le da padrón porque en
-// San Pablo el herbicida, el desmalezado y el pulverizado se pagan por lote
+// San Pablo el herbicida y el desmalezado se pagan por lote
 // terminado: lo que se reparte entre la gente que trabajó es la medida del
 // lote, así que esa medida tiene que estar cargada en algún lado.
 //

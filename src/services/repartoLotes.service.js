@@ -5,7 +5,7 @@ import PeriodoCertificado from "../models/PeriodoCertificado.js";
 
 // El pago por lote terminado (18/09/2026).
 //
-// En San Pablo el herbicida, el desmalezado y el pulverizado no se pagan por
+// En San Pablo el herbicida y el desmalezado no se pagan por
 // jornada: se pagan cuando el lote queda terminado. Lo que se reparte es la
 // medida del lote —las plantas o las hectáreas, según la unidad de la tarea—
 // entre las jornadas que se le dedicaron, en proporción a las horas de cada
@@ -17,8 +17,9 @@ import PeriodoCertificado from "../models/PeriodoCertificado.js";
 // borrar una cantidad que cargó una persona.
 
 // Las tareas que se pagan por lote terminado. Son las mismas que llevan el
-// círculo de estado en la planilla (`tareasConEstado` en el front).
-export const TAREAS_POR_LOTE = ["herbicida", "desmalezado", "pulverizado"];
+// círculo de estado en la planilla (`tareasConEstado` en el front). El
+// pulverizado salió el 25/09/2026: se carga con la cantidad a mano.
+export const TAREAS_POR_LOTE = ["herbicida", "desmalezado"];
 
 // Lo que se escribe en el parte que se mueve de mes. Sirve de marca: al
 // deshacer el reparto solo se limpian los períodos que puso el sistema.
