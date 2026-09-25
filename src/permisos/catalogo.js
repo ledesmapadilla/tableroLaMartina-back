@@ -7,10 +7,11 @@
  * `hoy`): si se suma o se saca una pantalla allá, va también acá. Una clave
  * que falte acá no da permiso de edición en el back.
  */
-const ROLES = ["superadmin", "solicitante", "analista", "comprador", "gerente", "celular"];
+const ROLES = ["superadmin", "solicitante", "analista", "comprador", "gerente", "celular", "liquidacion"];
 // "celular" (20/09/2026) nace sin nada: no entra en ningun acceso de antes y
 // se le tilda lo que va en Altas > Usuarios > Roles.
-const SIN_CELULAR = ROLES.filter((r) => r !== "celular");
+// "liquidacion" (25/09/2026) nace igual, sin nada.
+const SIN_CELULAR = ROLES.filter((r) => r !== "celular" && r !== "liquidacion");
 const TODOS = SIN_CELULAR;
 const SIN_SOLICITANTE = SIN_CELULAR.filter((r) => r !== "solicitante");
 const GERENCIA = ["gerente", "superadmin"];
