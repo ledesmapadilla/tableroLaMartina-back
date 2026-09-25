@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import RepuestoTractor from "../models/RepuestoTractor.js";
 import Tractor from "../models/Tractor.js";
 
-const FILTROS = ["filtroAire", "filtroCombustible", "filtroAceite"];
+const FILTROS = ["filtroAire", "filtroCombustible", "filtroTrampaAgua", "filtroAceite"];
 const MARCAS_POR_FILTRO = 3;
 
 // Las alternativas de un filtro, prolijas: hasta 3 y sin las que quedaron

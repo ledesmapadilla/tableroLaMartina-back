@@ -18,6 +18,8 @@ const RepuestoTractorSchema = new Schema(
     tractor: { type: Schema.Types.ObjectId, ref: "Tractor", required: true, unique: true },
     filtroAire: { type: [AlternativaSchema], default: [] },
     filtroCombustible: { type: [AlternativaSchema], default: [] },
+    // Agregado el 25/09/2026, a la derecha del de combustible.
+    filtroTrampaAgua: { type: [AlternativaSchema], default: [] },
     filtroAceite: { type: [AlternativaSchema], default: [] },
     observaciones: { type: String, trim: true, default: "" },
   },
