@@ -15,6 +15,11 @@ import PeriodoCertificado from "../models/PeriodoCertificado.js";
 // vuelo: así el número queda congelado, Contable - Pagos no se toca y se puede
 // auditar. `repartido` dice cuáles escribió el sistema, para no pisar ni
 // borrar una cantidad que cargó una persona.
+//
+// Todo se cobra en la certificación en la que se termina el lote (25/09/2026).
+// Una jornada de un mes anterior cuenta para el reparto pero se queda en su
+// mes sin cantidad: lo suyo se paga con un renglón de pago (`pagoDe`) en la
+// certificación del cierre.
 
 // Las tareas que se pagan por lote terminado. Son las mismas que llevan el
 // círculo de estado en la planilla (`tareasConEstado` en el front). El
@@ -127,18 +132,30 @@ const buscarPeriodo = (periodos, fecha) => {
   return clavePeriodo(anio, mes);
 };
 
-// Las jornadas del lote y la tarea, en orden. El lote se guarda como texto en
-// el parte (los partes viejos no tienen padrón), así que se filtra en memoria
-// por nombre comparable.
-const jornadasDelLote = async ({ establecimiento, tarea, lote }) => {
+// Los partes del lote y la tarea, en orden: las jornadas y, aparte, los
+// renglones de pago que armó el reparto (`pagoDe`), que no son jornadas. El
+// lote se guarda como texto en el parte (los partes viejos no tienen padrón),
+// así que se filtra en memoria por nombre comparable.
+const partesDelLote = async ({ establecimiento, tarea, lote }) => {
   const partes = await ParteDiario.find({ establecimiento, tarea })
     .select(
-      "fecha createdAt totalHoras lote terminado cantidad repartido periodo motivoFueraDeCierre"
+      "fecha createdAt persona cliente totalHoras lote terminado cantidad repartido " +
+        "periodo motivoFueraDeCierre pagoDe"
     )
     .sort({ fecha: 1, createdAt: 1 })
     .lean();
   const buscado = comparable(lote);
-  return partes.filter((p) => comparable(p.lote) === buscado);
+  const delLote = partes.filter((p) => comparable(p.lote) === buscado);
+  return {
+    lista: delLote.filter((p) => !p.pagoDe),
+    pagos: delLote.filter((p) => p.pagoDe),
+  };
+};
+
+// "DD/MM/AAAA", para la observación del renglón de pago.
+const fechaCorta = (fecha) => {
+  const [a, m, d] = new Date(fecha).toISOString().slice(0, 10).split("-");
+  return `${d}/${m}/${a}`;
 };
 
 // El día de un parte, como "AAAA-MM-DD".
@@ -192,8 +209,20 @@ const limpiar = (jornadas) =>
       },
     }));
 
-const limpiarGrupo = async (jornadas, resto = {}) => {
-  const ops = limpiar(jornadas);
+// Los renglones de pago de un grupo: los de sus jornadas y los del día del
+// cierre. Los segundos cubren el que quedó huérfano porque su jornada se borró
+// o se pasó a otro lote.
+const pagosDelGrupo = (pagos, jornadas, cierre) => {
+  const ids = new Set(jornadas.map((p) => String(p._id)));
+  const hasta = cierre ? dia(cierre.fecha) : null;
+  return pagos.filter((p) => ids.has(String(p.pagoDe)) || (hasta !== null && dia(p.fecha) === hasta));
+};
+
+const borrarPagos = (pagos) =>
+  pagos.map((p) => ({ deleteOne: { filter: { _id: p._id } } }));
+
+const limpiarGrupo = async (jornadas, pagos, resto = {}) => {
+  const ops = [...limpiar(jornadas), ...borrarPagos(pagos)];
   if (ops.length) await ParteDiario.bulkWrite(ops);
   return { estado: ops.length ? "limpiado" : "nada", ...resto };
 };
@@ -225,20 +254,19 @@ export const recalcularLote = async ({
   const padron = tareaDelPadron || (await Tarea.findById(tarea).select("tarea unidad").lean());
   if (!padron || !esTareaDeLote(padron.tarea)) return { estado: "nada" };
 
-  const lista = await jornadasDelLote({ establecimiento, tarea, lote });
-  if (!lista.length) return { estado: "nada" };
-
+  const { lista, pagos: todosLosPagos } = await partesDelLote({ establecimiento, tarea, lote });
   const { jornadas, cierre } = grupoDe(lista, dia(fecha));
-  if (!jornadas.length) return { estado: "nada" };
+  const pagos = pagosDelGrupo(todosLosPagos, jornadas, cierre);
+  if (!jornadas.length) return limpiarGrupo([], pagos);
 
   // El grupo sigue abierto: si quedaba un reparto de antes, se borra.
-  if (!cierre) return limpiarGrupo(jornadas);
+  if (!cierre) return limpiarGrupo(jornadas, pagos);
 
   const lotes = await Lote.find({ establecimiento }).select("nombre hectareas plantas").lean();
   const loteDelPadron = lotes.find((l) => comparable(l.nombre) === comparable(lote));
 
   if (!loteDelPadron) {
-    return limpiarGrupo(jornadas, {
+    return limpiarGrupo(jornadas, pagos, {
       aviso: `El lote "${lote}" no está en el padrón: no se pudo repartir la medida.`,
     });
   }
@@ -248,10 +276,10 @@ export const recalcularLote = async ({
     // En Tancadas no hay medida que repartir y no es un error: esas tareas se
     // siguen cargando a mano.
     if (medidaDelLote(padron.unidad, { plantas: 0, hectareas: 0 }) === null) {
-      return limpiarGrupo(jornadas);
+      return limpiarGrupo(jornadas, pagos);
     }
     const falta = sinAcentos(padron.unidad).startsWith("planta") ? "las plantas" : "las hectáreas";
-    return limpiarGrupo(jornadas, {
+    return limpiarGrupo(jornadas, pagos, {
       aviso: `El lote "${loteDelPadron.nombre}" no tiene cargadas ${falta}: no se pudo repartir.`,
     });
   }
@@ -259,30 +287,70 @@ export const recalcularLote = async ({
   const periodos = await PeriodoCertificado.find({ establecimiento })
     .select("anio mes desde hasta")
     .lean();
-  // Se paga todo en el mes en que se termina el lote, aunque haya jornadas de
-  // meses anteriores ya cerrados.
+  // El lote entero se paga en la certificación en la que se termina.
   const mesDelPago = CLAVE_PERIODO.test(cierre.periodo || "")
     ? cierre.periodo
     : buscarPeriodo(periodos, cierre.fecha);
 
+  // En qué certificación cae cada jornada. Un parte que alguien movió a mano,
+  // con su propia explicación, va donde lo dejaron; el período que escribió un
+  // reparto viejo no cuenta.
+  const mesDe = (p) =>
+    p.motivoFueraDeCierre &&
+    p.motivoFueraDeCierre !== MOTIVO_REPARTO &&
+    CLAVE_PERIODO.test(p.periodo || "")
+      ? p.periodo
+      : buscarPeriodo(periodos, p.fecha);
+
+  // Todo se cobra en la certificación del cierre, y nada en las anteriores
+  // (25/09/2026). La medida se reparte entre todas las jornadas del grupo, de
+  // cualquier mes, en proporción a las horas: las de un mes anterior cuentan
+  // para sacar la parte de cada uno. Pero esa jornada se queda en su mes, con
+  // sus horas y sin cantidad, y lo que le toca se paga con un renglón de pago
+  // (`pagoDe`) sin horas, fechado el día del cierre.
   const valores = repartir(Number(medida), jornadas);
-  const ops = jornadas.map((p, i) => {
-    const cambios = { cantidad: valores[i], repartido: true };
-    // El parte se muda al mes del cierre. Uno que alguien ya había movido a
-    // mano, con su propia explicación, se deja donde está.
-    const propio = !p.motivoFueraDeCierre || p.motivoFueraDeCierre === MOTIVO_REPARTO;
-    if (propio) {
-      const suyo = buscarPeriodo(periodos, p.fecha);
-      if (suyo !== mesDelPago) {
-        cambios.periodo = mesDelPago;
-        cambios.motivoFueraDeCierre = MOTIVO_REPARTO;
-      } else {
+  const periodoDelPago = CLAVE_PERIODO.test(cierre.periodo || "") ? cierre.periodo : null;
+  const pagoPorJornada = new Map(pagos.map((p) => [String(p.pagoDe), p]));
+  const usados = new Set();
+  let fueraDeMes = 0;
+
+  const ops = jornadas.flatMap((p, i) => {
+    if (mesDe(p) === mesDelPago) {
+      const cambios = { cantidad: valores[i], repartido: true };
+      // Si un reparto viejo lo había mudado de mes, vuelve al de su fecha.
+      if (p.motivoFueraDeCierre === MOTIVO_REPARTO) {
         cambios.periodo = null;
         cambios.motivoFueraDeCierre = "";
       }
+      return [{ updateOne: { filter: { _id: p._id }, update: cambios } }];
     }
-    return { updateOne: { filter: { _id: p._id }, update: cambios } };
+
+    fueraDeMes += 1;
+    const datosDelPago = {
+      fecha: cierre.fecha,
+      persona: p.persona,
+      cliente: p.cliente || "",
+      cantidad: valores[i],
+      repartido: true,
+      periodo: periodoDelPago,
+      motivoFueraDeCierre: periodoDelPago ? MOTIVO_REPARTO : "",
+      observacion:
+        `${MOTIVO_REPARTO}: jornada del ${fechaCorta(p.fecha)} ` +
+        `(${Number(p.totalHoras) || 0} hs)`,
+    };
+    const existente = pagoPorJornada.get(String(p._id));
+    const pago = existente
+      ? { updateOne: { filter: { _id: existente._id }, update: datosDelPago } }
+      : {
+          insertOne: {
+            document: { establecimiento, tarea, lote: p.lote, totalHoras: 0, pagoDe: p._id, ...datosDelPago },
+          },
+        };
+    if (existente) usados.add(String(existente._id));
+    return [...limpiar([p]), pago];
   });
+  // Los renglones de pago que ya no le corresponden a ninguna jornada.
+  ops.push(...borrarPagos(pagos.filter((p) => !usados.has(String(p._id)))));
   await ParteDiario.bulkWrite(ops);
 
   return {
@@ -292,6 +360,9 @@ export const recalcularLote = async ({
     unidad: padron.unidad,
     medida: Number(medida),
     jornadas: jornadas.length,
+    // Las jornadas de certificaciones anteriores, que cobran con un renglón de
+    // pago en la del cierre.
+    fueraDeMes,
     mes: mesDelPago,
   };
 };

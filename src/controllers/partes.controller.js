@@ -211,6 +211,11 @@ const rehacerReparto = (referencia) =>
     return { estado: "nada" };
   });
 
+// Los renglones de pago del lote terminado los arma el reparto: se corrigen
+// editando la jornada que pagan, no a mano (25/09/2026).
+const RENGLON_DE_PAGO =
+  "Este renglón lo arma el pago por lote terminado: se corrige editando la jornada que paga.";
+
 const RELACIONES = [
   { path: "persona", select: "apellidoNombre dni legajo" },
   { path: "cc", select: "cc equipo descripcion" },
@@ -259,7 +264,7 @@ export const getAll = async (req, res) => {
     const partes =
       req.query.resumen === "1"
         ? await consulta
-            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido")
+            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido pagoDe")
             .populate([
               { path: "persona", select: "apellidoNombre legajo" },
               { path: "cc", select: "cc" },
@@ -447,8 +452,9 @@ export const update = async (req, res) => {
     const [tareaDelPadron, { ok, centro, conTractor }, anterior] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
-      ParteDiario.findById(req.params.id).select("establecimiento tarea lote fecha").lean(),
+      ParteDiario.findById(req.params.id).select("establecimiento tarea lote fecha pagoDe").lean(),
     ]);
+    if (anterior?.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
 
     const falta = faltantes(req.body);
     if (faltaLaCantidad(req.body, tareaDelPadron)) falta.push("la cantidad");
@@ -501,8 +507,15 @@ export const update = async (req, res) => {
 
 export const remove = async (req, res) => {
   try {
+    const existente = await ParteDiario.findById(req.params.id).select("pagoDe").lean();
+    if (!existente) return res.status(404).json({ error: "Parte no encontrado" });
+    if (existente.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
+
     const parte = await ParteDiario.findByIdAndDelete(req.params.id);
     if (!parte) return res.status(404).json({ error: "Parte no encontrado" });
+    // El renglón que pagaba esta jornada en la certificación del cierre se va
+    // con ella; el reparto de abajo rehace el resto del grupo.
+    await ParteDiario.deleteMany({ pagoDe: parte._id });
 
     // La lectura que dejó este parte se va con él: el horómetro del tractor
     // vuelve a ser el que estaba vigente antes de cargarlo.

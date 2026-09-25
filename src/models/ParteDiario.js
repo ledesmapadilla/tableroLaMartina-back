@@ -61,6 +61,12 @@ const ParteDiarioSchema = new Schema(
     // Sirve para saber cuál se puede rehacer o borrar sin pisar una carga a
     // mano (ver `services/repartoLotes.service.js`).
     repartido: { type: Boolean, default: false },
+    // Un renglón que arma el reparto, no una jornada (25/09/2026): si un lote
+    // se termina en otra certificación, la jornada de un mes anterior se queda
+    // en su mes sin cantidad y lo que le toca se paga con este renglón, sin
+    // horas, en la certificación del cierre. `pagoDe` es esa jornada. No se
+    // edita ni se borra a mano: se rehace con el reparto.
+    pagoDe: { type: Schema.Types.ObjectId, ref: "ParteDiario", default: null },
 
     combustible: { type: Number, default: null },
     // Algunos meses se usa y otros no.
