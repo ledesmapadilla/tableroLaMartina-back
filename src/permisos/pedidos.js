@@ -73,6 +73,10 @@ export const ESTADOS_POR_PERMISO = {
   "compras.comprador": ["Pedido", "Pendiente", "En proceso", "Para retirar", "Retirado", "Completado", "Rechazado"],
 };
 
+// Desde dónde un ítem puede volver a "Para analisis": lo que todavía no tiene
+// orden de pago. Después de la OP ya está comprado.
+const VUELVEN_A_ANALISIS = ["Pedido", "En analisis", "Para revision", "Autorizar", "Para hacer OP", "Rechazado"];
+
 const CLAVES = Object.keys(CAMPOS_POR_PERMISO);
 
 /** Lo que el rol puede escribir: la suma de las pantallas donde puede editar. */
@@ -96,6 +100,21 @@ const permitidoPara = async (rol) => {
  * circuito, así que no pide permiso.
  */
 export const revisarCambioDeItem = async (rol, campos, estadoActual) => {
+  // Volver a análisis (26/09/2026): se puede desde el análisis ya hecho
+  // (Autorizar, Para hacer OP) o desde un rechazo, nunca después de la orden de
+  // pago. Vale también para el superadmin: es el circuito, no un permiso.
+  const nuevoEstado = campos.estado;
+  if (
+    nuevoEstado === "Para analisis" &&
+    nuevoEstado !== estadoActual &&
+    !VUELVEN_A_ANALISIS.includes(estadoActual)
+  ) {
+    return {
+      status: 409,
+      error: `Un ítem en "${estadoActual}" ya no puede volver a análisis.`,
+    };
+  }
+
   if (rol === "superadmin") return null;
   const { campos: permitidos, estados } = await permitidoPara(rol);
 

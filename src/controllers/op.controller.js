@@ -85,6 +85,27 @@ export const crear = async (req, res) => {
     const { items, total, establecimiento } = req.body
     if (!items || items.length === 0) return res.status(400).json({ error: 'La OP debe tener al menos un ítem.' })
 
+    // Cada ítem tiene que seguir "Para hacer OP" (26/09/2026): mientras el
+    // comprador arma la orden, el analista puede haber vuelto uno a análisis
+    // o alguien rechazarlo, y no se compra lo que ya no está para comprar.
+    const noDisponibles = []
+    for (const opItemb of items) {
+      const Model = opItemb._src === 'berdina' ? BerdinaPedido : SanPabloPedido
+      const pedido = await Model.findOne(
+        { _id: opItemb.pedidoId, 'items._id': opItemb.itemId },
+        { 'items.$': 1 }
+      ).lean()
+      const estado = pedido?.items?.[0]?.estado
+      if (estado !== 'Para hacer OP') {
+        noDisponibles.push(`${opItemb.nombre_repuesto} (${estado || 'ya no existe'})`)
+      }
+    }
+    if (noDisponibles.length) {
+      return res.status(409).json({
+        error: `Estos ítems ya no están para hacer OP: ${noDisponibles.join(', ')}. Quitalos de la orden y volvé a generarla.`,
+      })
+    }
+
     const prefijo = establecimiento === 'berdina' ? 'B' : establecimiento === 'sanpablo' ? 'SP' : 'MX'
     const last = await OC.findOne({ establecimiento }).sort({ nro_oc: -1 })
     const nro_oc = last?.nro_oc ? last.nro_oc + 1 : 1
