@@ -7,7 +7,7 @@ const MES_NUM = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, j
 
 export const getAll = async (req, res) => {
   try {
-    const lista = await CheckList.find().populate("camioneta", "marca patente").sort({ createdAt: -1 });
+    const lista = await CheckList.find().populate("camioneta", "marca patente").sort({ createdAt: -1 }).lean();
     res.json(lista);
   } catch (error) {
     res.status(500).json({ error: error.message });

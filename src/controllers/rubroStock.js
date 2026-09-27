@@ -138,7 +138,7 @@ export const crearRubro = ({
     try {
       // Por tipo y después por código, o solo por código cuando no hay tipo:
       // el código ya agrupa lo que se cargó junto.
-      const articulos = await Modelo.find().sort(porTipo ? { tipo: 1, codigo: 1 } : { codigo: 1 });
+      const articulos = await Modelo.find().sort(porTipo ? { tipo: 1, codigo: 1 } : { codigo: 1 }).lean();
       res.json(articulos);
     } catch (error) {
       res.status(500).json({ error: error.message });

@@ -8,7 +8,7 @@ import SanPabloPedido from '../models/SanPabloPedido.js'
 
 export const getAll = async (req, res) => {
   try {
-    const ocs = await OC.find().sort({ createdAt: -1 })
+    const ocs = await OC.find().sort({ createdAt: -1 }).lean()
     res.json(ocs)
   } catch (err) {
     res.status(500).json({ error: err.message })

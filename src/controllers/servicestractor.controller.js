@@ -28,7 +28,8 @@ export const getAll = async (req, res) => {
   try {
     const registros = await ServiceTractor.find()
       .populate("tractor", "cc descripcion supervisor gruppo")
-      .sort({ fecha: -1, createdAt: -1 });
+      .sort({ fecha: -1, createdAt: -1 })
+      .lean();
     res.json(registros);
   } catch (error) {
     res.status(500).json({ error: error.message });

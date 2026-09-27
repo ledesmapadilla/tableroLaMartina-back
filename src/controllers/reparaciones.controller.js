@@ -2,7 +2,7 @@ import Reparacion from "../models/Reparacion.js";
 
 export const getAll = async (req, res) => {
   try {
-    const reparaciones = await Reparacion.find().sort({ createdAt: -1 });
+    const reparaciones = await Reparacion.find().sort({ createdAt: -1 }).lean();
     res.json(reparaciones);
   } catch (error) {
     res.status(500).json({ error: error.message });

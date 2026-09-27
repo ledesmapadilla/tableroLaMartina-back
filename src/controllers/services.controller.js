@@ -5,7 +5,8 @@ export const getAll = async (req, res) => {
   try {
     const registros = await Service.find()
       .populate("camioneta", "patente marca")
-      .sort({ fecha: -1 });
+      .sort({ fecha: -1 })
+      .lean();
     res.json(registros);
   } catch (error) {
     res.status(500).json({ error: error.message });

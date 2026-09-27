@@ -100,7 +100,8 @@ export const getAll = async (req, res) => {
   try {
     const historial = await HistorialTractor.find()
       .populate("tractor", "cc descripcion")
-      .sort({ fecha: -1, createdAt: -1 });
+      .sort({ fecha: -1, createdAt: -1 })
+      .lean();
     res.json(historial);
   } catch (error) {
     res.status(500).json({ error: error.message });

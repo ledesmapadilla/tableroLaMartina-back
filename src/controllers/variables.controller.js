@@ -57,7 +57,8 @@ export const getAll = async (req, res) => {
     // conservan el campo en el que se hicieron, pero solo como dato.
     const variables = await VariableTarea.find()
       .populate(RELACIONES)
-      .sort({ vigenciaDesde: -1, fecha: -1, createdAt: -1 });
+      .sort({ vigenciaDesde: -1, fecha: -1, createdAt: -1 })
+      .lean();
 
     // Las tareas borradas dejan cargas huérfanas: no se devuelven, la pantalla
     // arma el listado a partir del padrón de tareas.

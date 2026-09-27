@@ -7,7 +7,7 @@ import { sincronizarCentroCosto } from "./centroscosto.controller.js";
 
 export const getAll = async (req, res) => {
   try {
-    const colectivos = await Colectivo.find().sort({ supervisor: 1, cc: 1 });
+    const colectivos = await Colectivo.find().sort({ supervisor: 1, cc: 1 }).lean();
     res.json(colectivos);
   } catch (error) {
     res.status(500).json({ error: error.message });

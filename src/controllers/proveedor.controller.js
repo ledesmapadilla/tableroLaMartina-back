@@ -15,7 +15,7 @@ const validar = (body, excludeId = null) => {
 
 export const getAll = async (req, res) => {
   try {
-    const proveedores = await Proveedor.find().sort({ createdAt: -1 });
+    const proveedores = await Proveedor.find().sort({ createdAt: -1 }).lean();
     res.json(proveedores);
   } catch (error) {
     res.status(500).json({ error: error.message });

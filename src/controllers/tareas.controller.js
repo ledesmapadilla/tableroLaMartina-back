@@ -43,7 +43,7 @@ const tareaRepetida = async (tarea, ignorarId = null) => {
 
 export const getAll = async (req, res) => {
   try {
-    const tareas = await Tarea.find().sort({ tarea: 1 });
+    const tareas = await Tarea.find().sort({ tarea: 1 }).lean();
     res.json(tareas);
   } catch (error) {
     res.status(500).json({ error: error.message });
