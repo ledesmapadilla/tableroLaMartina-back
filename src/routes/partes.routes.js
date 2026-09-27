@@ -5,6 +5,7 @@ import {
   getUltimoHorometro,
   getClientes,
   getCierresDeLotes,
+  getConsumos,
   create,
   update,
   remove,
@@ -17,6 +18,7 @@ router.get("/", getAll);
 router.get("/ultimo-horometro/:cc", getUltimoHorometro);
 router.get("/clientes", getClientes);
 router.get("/cierres-de-lotes", getCierresDeLotes);
+router.get("/consumos", getConsumos);
 router.get("/:id", getById);
 router.post("/", create);
 router.put("/:id", update);

@@ -20,6 +20,7 @@ import {
   parsearHorometro,
   calcularHorasCC,
 } from "../services/horometros.service.js";
+import { consumosDePartes } from "../services/consumos.service.js";
 
 // El horómetro del parte es el del tractor: solo se valida si el CC lo es.
 // Las dos lecturas son del mismo tractor y el mismo día, así que el historial
@@ -52,6 +53,16 @@ const chequearHorometroDelParte = async (body, centro, ignorarId = null) => {
 };
 
 // "HH:mm" -> minutos desde la medianoche. Devuelve null si no es una hora.
+// La edición deja el horómetro como estaba: mismas lecturas, mismo día y
+// mismo CC.
+const mismoHorometro = (anterior, body) =>
+  Boolean(anterior) &&
+  String(anterior.cc || "") === String(body.cc || "") &&
+  (anterior.fecha ? new Date(anterior.fecha).toISOString().slice(0, 10) : "") ===
+    String(body.fecha || "").slice(0, 10) &&
+  parsearHorometro(anterior.horomIngreso) === parsearHorometro(body.horomIngreso) &&
+  parsearHorometro(anterior.horomSalida) === parsearHorometro(body.horomSalida);
+
 const aMinutos = (hora) => {
   const m = /^(\d{1,2}):(\d{2})$/.exec((hora || "").trim());
   if (!m) return null;
@@ -224,33 +235,53 @@ const RELACIONES = [
 
 const conRelaciones = (consulta) => consulta.populate(RELACIONES);
 
-// Listado del período. Acepta ?desde&hasta (ISO) o ?anio&mes para el mes
-// calendario; sin nada devuelve todo.
+// Qué partes se piden. Acepta ?desde&hasta (ISO) o ?anio&mes para el mes
+// calendario; sin nada, todos. Lo comparten el listado y los consumos entre
+// cargas, para que los dos miren los mismos partes.
+const filtroDePartes = (query) => {
+  const { desde, hasta, anio, mes } = query;
+  const filtro = { establecimiento: clave(query.establecimiento) };
+
+  if (desde || hasta) {
+    filtro.fecha = {};
+    if (desde) filtro.fecha.$gte = new Date(desde);
+    if (hasta) filtro.fecha.$lte = new Date(`${String(hasta).slice(0, 10)}T23:59:59.999Z`);
+  } else if (anio && mes) {
+    filtro.fecha = {
+      $gte: new Date(Date.UTC(Number(anio), Number(mes) - 1, 1)),
+      $lte: new Date(Date.UTC(Number(anio), Number(mes), 0, 23, 59, 59)),
+    };
+  }
+
+  // Certificado de un mes (?periodo=2026-08): además del rango van los partes
+  // con fecha posterior al cierre que se dejaron en este mes con una
+  // explicación, y salen los del rango que quedaron asignados a otro mes.
+  const { periodo } = query;
+  if (typeof periodo === "string" && CLAVE_PERIODO.test(periodo) && filtro.fecha) {
+    const rango = filtro.fecha;
+    delete filtro.fecha;
+    filtro.$or = [{ periodo }, { fecha: rango, periodo: { $in: [null, ""] } }];
+  }
+  return filtro;
+};
+
+/**
+ * El consumo de gasoil entre cargas de los partes pedidos (27/09/2026), con
+ * los mismos filtros que el listado. Ver services/consumos.service.js.
+ */
+export const getConsumos = async (req, res) => {
+  try {
+    const partes = await ParteDiario.find(filtroDePartes(req.query)).select("fecha cc turbo pagoDe").lean();
+    res.json(await consumosDePartes(partes));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Listado del período.
 export const getAll = async (req, res) => {
   try {
-    const { desde, hasta, anio, mes } = req.query;
-    const filtro = { establecimiento: clave(req.query.establecimiento) };
-
-    if (desde || hasta) {
-      filtro.fecha = {};
-      if (desde) filtro.fecha.$gte = new Date(desde);
-      if (hasta) filtro.fecha.$lte = new Date(`${String(hasta).slice(0, 10)}T23:59:59.999Z`);
-    } else if (anio && mes) {
-      filtro.fecha = {
-        $gte: new Date(Date.UTC(Number(anio), Number(mes) - 1, 1)),
-        $lte: new Date(Date.UTC(Number(anio), Number(mes), 0, 23, 59, 59)),
-      };
-    }
-
-    // Certificado de un mes (?periodo=2026-08): además del rango van los partes
-    // con fecha posterior al cierre que se dejaron en este mes con una
-    // explicación, y salen los del rango que quedaron asignados a otro mes.
-    const { periodo } = req.query;
-    if (typeof periodo === "string" && CLAVE_PERIODO.test(periodo) && filtro.fecha) {
-      const rango = filtro.fecha;
-      delete filtro.fecha;
-      filtro.$or = [{ periodo }, { fecha: rango, periodo: { $in: [null, ""] } }];
-    }
+    const filtro = filtroDePartes(req.query);
 
     // El informe de tareas por personal suma cantidades, horas y filtra: no le
     // sirven los horarios, los horómetros ni el combustible. Con ?resumen=1 se
@@ -452,7 +483,9 @@ export const update = async (req, res) => {
     const [tareaDelPadron, { ok, centro, conTractor }, anterior] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
-      ParteDiario.findById(req.params.id).select("establecimiento tarea lote fecha pagoDe").lean(),
+      ParteDiario.findById(req.params.id)
+        .select("establecimiento tarea lote fecha pagoDe cc horomIngreso horomSalida")
+        .lean(),
     ]);
     if (anterior?.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
 
@@ -472,8 +505,13 @@ export const update = async (req, res) => {
     const unidadMal = await desmalezadoFueraDeUnidad(req.body, tareaDelPadron);
     if (unidadMal) return res.status(400).json({ error: unidadMal });
 
-    const chequeo = await chequearHorometroDelParte(req.body, centro, req.params.id);
-    if (!chequeo.ok) return res.status(409).json(chequeo);
+    // Una edición que no toca el horómetro, la fecha ni el CC no se vuelve a
+    // validar: lo que la máquina marcó después no tiene por qué frenar que se
+    // corrija una tarea o una hora (27/09/2026).
+    if (!mismoHorometro(anterior, req.body)) {
+      const chequeo = await chequearHorometroDelParte(req.body, centro, req.params.id);
+      if (!chequeo.ok) return res.status(409).json(chequeo);
+    }
 
     const parte = await conRelaciones(
       ParteDiario.findByIdAndUpdate(req.params.id, armarDatos(req.body), {

@@ -193,14 +193,20 @@ export const lecturasDeTractor = async (tractorId, tractorPrecargado = null) => 
     TrabajoTractor.find({ tractor: tractorId, horometro: { $nin: ["", null] } })
       .select("fecha horometro")
       .lean(),
-    HorometroTractor.find({ tractor: tractorId }).select("fecha horometro origen").lean(),
+    HorometroTractor.find({ tractor: tractorId }).select("fecha horometro origen parte").lean(),
     CentroCosto.find({ tractor: tractorId }).select("_id").lean(),
     lecturasDeVisitas(tractor),
   ]);
 
   services.forEach((s) => push(s.fecha, s.horometro, "service", s._id));
   trabajos.forEach((t) => push(t.fecha, t.horometro, "reparacion", t._id));
-  manuales.forEach((h) => push(h.fecha, h.horometro, `horometro:${h.origen || "manual"}`, h._id));
+  manuales.forEach((h) => {
+    push(h.fecha, h.horometro, `horometro:${h.origen || "manual"}`, h._id);
+    // La copia que dejó un parte en el historial lleva el id de ese parte: al
+    // editarlo, el parte no tiene que chocar contra su propia lectura.
+    const ultima = lecturas.at(-1);
+    if (h.parte && ultima?.id === String(h._id)) ultima.parte = String(h.parte);
+  });
 
   if (centros.length) {
     const ids = centros.map((c) => c._id);
@@ -260,7 +266,8 @@ export const ultimaLecturaAntesDe = async (tractorId, fecha, ignorarId = null, c
       // Las lecturas del horómetro anterior no se comparan con las del nuevo.
       (!desde || l.fecha >= desde) &&
       !ignorar.has(l.id) &&
-      !ignorar.has(l.clave)
+      !ignorar.has(l.clave) &&
+      !(l.parte && ignorar.has(l.parte))
   );
 
   if (previas.length === 0) return null;
