@@ -15,6 +15,19 @@ export const getAll = async (req, res) => {
   }
 }
 
+// Un pedido solo, sin el historial de sus ítems. Lo usa Gerencia: al decidir
+// sobre parte de una tanda necesita el resto del pedido para recalcular el
+// umbral (28/09/2026).
+export const getById = async (req, res) => {
+  try {
+    const pedido = await BerdinaPedido.findById(req.params.id, { 'items.historial': 0 })
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado.' })
+    res.json(pedido)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+}
+
 export const getHistorialItem = async (req, res) => {
   try {
     const pedido = await BerdinaPedido.findOne(
