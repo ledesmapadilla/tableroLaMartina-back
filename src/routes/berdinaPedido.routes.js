@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { dividirItem } from '../controllers/dividirItem.js'
+import { archivoPedido, PUEDEN_ADJUNTAR } from '../controllers/archivoPedido.js'
+import { exigirEditar } from '../middleware/permisos.js'
 import BerdinaPedido from '../models/BerdinaPedido.js'
 import { getAll, crear, actualizarItem, borrarItem, ping, getHistorialItem, getById, getItemsPorEstado, getHistorialGerencia } from '../controllers/berdinaPedido.controller.js'
 
@@ -16,5 +18,8 @@ router.put('/:id/items/:itemId', actualizarItem)
 // pedidos es solo del taller (index.routes.js).
 router.put('/:id/items/:itemId/dividir', dividirItem(BerdinaPedido))
 router.delete('/:id/items/:itemId', borrarItem)
+// El adjunto del pedido entero (28/09/2026): lo sube o lo saca el mismo que
+// adjunta en un ítem.
+router.put('/:id/archivo', exigirEditar(PUEDEN_ADJUNTAR), archivoPedido(BerdinaPedido))
 
 export default router

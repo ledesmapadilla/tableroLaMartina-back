@@ -46,12 +46,19 @@ export const getItemsPorEstado = async (req, res) => {
     const { estado } = req.params
     const pedidos = await SanPabloPedido.find(
       { 'items.estado': estado },
-      { nro_pedido: 1, fecha: 1, items: 1 }
+      { nro_pedido: 1, fecha: 1, items: 1, archivo: 1 }
     ).lean()
     const items = pedidos.flatMap(p =>
       p.items
         .filter(i => i.estado === estado)
-        .map(({ historial: _, ...i }) => ({ ...i, nro_pedido: p.nro_pedido, fecha: p.fecha, pedidoId: p._id }))
+        .map(({ historial: _, ...i }) => ({
+          ...i,
+          nro_pedido: p.nro_pedido,
+          fecha: p.fecha,
+          pedidoId: p._id,
+          // El adjunto del pedido entero, si lo tiene.
+          archivoPedido: p.archivo,
+        }))
     )
     res.json(items)
   } catch (error) {

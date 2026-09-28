@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { archivoAdjuntoSchema } from './archivoAdjunto.js'
 
 const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros']
 
@@ -71,6 +72,9 @@ const pedidoSchema = new mongoose.Schema({
   nro_pedido: { type: Number, index: true },
   fecha:      { type: Date, required: true },
   items:      [itemSchema],
+  // Lo que abarca a todos los ítems (28/09/2026): el presupuesto único, el
+  // remito de todo lo pedido. El de cada ítem sigue en el ítem.
+  archivo:    { type: archivoAdjuntoSchema, default: undefined },
 }, { timestamps: true })
 
 pedidoSchema.index({ 'items.estado': 1 })
