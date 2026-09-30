@@ -1,7 +1,11 @@
 import mongoose from "mongoose";
 import VariableTarea from "../models/VariableTarea.js";
 import Tarea from "../models/Tarea.js";
-import { POR_DEFECTO } from "../models/Establecimiento.js";
+import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
+
+// De qué campo son los precios. Si no viene o no es un campo, Berdina, que es
+// el que tenía todo antes de separarlos.
+const campoPedido = (valor) => (CLAVES.includes(valor) ? valor : POR_DEFECTO);
 
 
 const RELACIONES = { path: "tarea", select: "tarea unidad empresa" };
@@ -28,9 +32,13 @@ const brutoDesdeNeto = (neto) =>
 // carga no cambia de tarea, se borra y se hace de nuevo.
 const armarDatos = (body) => {
   const neto = aNumero(body.neto);
+  const netoAlto = aNumero(body.netoAlto);
   return {
     neto,
     bruto: brutoDesdeNeto(neto),
+    cantAlto: aNumero(body.cantAlto),
+    netoAlto,
+    brutoAlto: brutoDesdeNeto(netoAlto),
     fecha: aFecha(body.fecha),
     vigenciaDesde: aFecha(body.vigenciaDesde),
   };
@@ -41,6 +49,13 @@ const armarDatos = (body) => {
 const queFalta = (datos) => {
   if (datos.neto === null) return "Falta el importe neto";
   if (!Number.isFinite(datos.neto)) return "El importe neto no es un número";
+  // El de alto rendimiento es optativo, pero si viene tiene que ser un número.
+  if (datos.cantAlto !== null && !Number.isFinite(datos.cantAlto)) {
+    return "La cantidad de alto rendimiento no es un número";
+  }
+  if (datos.netoAlto !== null && !Number.isFinite(datos.netoAlto)) {
+    return "El importe neto de alto rendimiento no es un número";
+  }
   if (!datos.fecha) return "Falta la fecha";
   if (!datos.vigenciaDesde) return "Falta la fecha de vigencia";
   return null;
@@ -50,12 +65,12 @@ const queFalta = (datos) => {
 // cada tarea es la que está rigiendo.
 export const getAll = async (req, res) => {
   try {
-    // El precio de una tarea es uno solo para todo Producción (18/09/2026):
-    // dejó de distinguir campo, igual que ya había dejado de distinguir
-    // cliente. Por eso no se filtra por establecimiento y el historial de los
-    // dos campos queda mezclado en una sola línea de tiempo. Las cargas viejas
-    // conservan el campo en el que se hicieron, pero solo como dato.
-    const variables = await VariableTarea.find()
+    // Cada campo vuelve a tener sus precios (30/09/2026): Remuneración se
+    // abre en Berdina y San Pablo. Del 18/09 al 30/09 fueron uno solo para
+    // todo Producción; al separarlos, los dos arrancaron con la misma lista.
+    const variables = await VariableTarea.find({
+      establecimiento: campoPedido(req.query.establecimiento),
+    })
       .populate(RELACIONES)
       .sort({ vigenciaDesde: -1, fecha: -1, createdAt: -1 })
       .lean();
@@ -84,11 +99,8 @@ export const create = async (req, res) => {
     const error = queFalta(datos);
     if (error) return res.status(400).json({ error });
 
-    // El precio vale para todos los campos, así que el establecimiento de una
-    // carga nueva es solo el que pide el modelo: nadie lo lee para buscar el
-    // precio.
     const variable = new VariableTarea({
-      establecimiento: POR_DEFECTO,
+      establecimiento: campoPedido(req.body.establecimiento),
       tarea,
       ...datos,
     });

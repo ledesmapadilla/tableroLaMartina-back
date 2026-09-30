@@ -16,6 +16,12 @@ const VariableTareaSchema = new Schema(
     // que rehacer la cuenta en cada pantalla.
     neto: { type: Number, default: null },
     bruto: { type: Number, default: null },
+    // El precio de alto rendimiento (30/09/2026): va aparte del normal y es
+    // optativo. Se carga el neto y el bruto sale con la misma retención.
+    // La cantidad que corresponde al alto rendimiento (solo Berdina).
+    cantAlto: { type: Number, default: null },
+    netoAlto: { type: Number, default: null },
+    brutoAlto: { type: Number, default: null },
 
     // Cuándo se cargó el valor: queda como dato de la carga.
     fecha: { type: Date, default: null },
