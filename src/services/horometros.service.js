@@ -212,6 +212,9 @@ export const lecturasDeTractor = async (tractorId, tractorPrecargado = null) => 
     const ids = centros.map((c) => c._id);
     const filas = await ParteDiario.find({
       cc: { $in: ids },
+      // El horómetro de un parte provisorio todavía no es una lectura: es un
+      // ayudamemoria sin validar, y no entra al historial de la máquina.
+      provisorio: { $ne: true },
       $or: [{ horomIngreso: { $ne: null } }, { horomSalida: { $ne: null } }],
     })
       .select("fecha horomIngreso horomSalida")

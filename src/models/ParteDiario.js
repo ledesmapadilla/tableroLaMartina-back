@@ -73,6 +73,14 @@ const ParteDiarioSchema = new Schema(
     turbo: { type: String, trim: true, default: "" },
     // Combustible cargado al turbo, aparte del de la máquina.
     combTurbo: { type: Number, default: null },
+
+    // Cargado a la mañana como ayudamemoria, con lo que se sabe hasta ahí
+    // (30/09/2026): se guarda sin pasar por las validaciones y se completa al
+    // terminar la jornada. Mientras esté en true el parte no deja lectura de
+    // horómetro ni puede dar un lote por terminado. Una persona tiene
+    // provisorios de un solo día a la vez en cada campo (ver
+    // `diaProvisorioPendiente` en partes.controller.js).
+    provisorio: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -83,5 +91,11 @@ ParteDiarioSchema.index({ establecimiento: 1, fecha: 1, persona: 1 });
 // para armar el grupo del lote. Sin esto es un recorrido de toda la colección
 // en cada parte que se guarda (18/09/2026).
 ParteDiarioSchema.index({ establecimiento: 1, tarea: 1, fecha: 1 });
+// Los provisorios de una persona, para saber si le quedó un día sin completar.
+// Parcial: son un puñado de partes a la vez, no toda la colección.
+ParteDiarioSchema.index(
+  { establecimiento: 1, persona: 1, fecha: 1 },
+  { partialFilterExpression: { provisorio: true } }
+);
 
 export default model("ParteDiario", ParteDiarioSchema);

@@ -119,6 +119,9 @@ export const tramosSeSolapan = (body) => {
   return despues + minutosDelTramo(body.horaIngreso2, body.horaEgreso2) > 1440;
 };
 
+// "AAAA-MM-DD": el día de un parte.
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
 const sinCantidad = (body) =>
   body.cantidad === "" || body.cantidad === null || body.cantidad === undefined;
 
@@ -159,6 +162,58 @@ const faltantes = (body) => {
   // tareas que no la llevan y para saberlo hay que mirar el padrón.
   if (!sinCantidad(body) && isNaN(Number(body.cantidad))) falta.push("una cantidad válida");
   return falta;
+};
+
+// Un parte provisorio es el ayudamemoria de la mañana (30/09/2026): se guarda
+// con lo que se sabe hasta ahí y se completa al terminar la jornada. No pasa
+// por las validaciones de la carga; solo necesita saber de quién y de qué día
+// es, y que los números sean números.
+const esProvisorio = (body) => body.provisorio === true || body.provisorio === "true";
+
+const faltantesDelProvisorio = (body) => {
+  const falta = [];
+  if (!body.fecha) falta.push("la fecha");
+  if (!body.persona) falta.push("la persona");
+  if (!sinCantidad(body) && isNaN(Number(body.cantidad))) falta.push("una cantidad válida");
+  return falta;
+};
+
+/**
+ * El día que una persona dejó en provisorio y todavía no se completó.
+ *
+ * **Con un día en provisorio, a esa persona no se le carga ningún otro día**
+ * —ni provisorio ni completo— hasta que todos los partes de ese día tengan sus
+ * datos reales. Cada campo va por su cuenta: los partes de San Pablo y los de
+ * Berdina son independientes, así que un día pendiente en uno no frena al otro.
+ *
+ * Devuelve el cuerpo del rechazo, o null si puede.
+ */
+const diaProvisorioPendiente = async (body, ignorarId = null) => {
+  const dia = String(body.fecha || "").slice(0, 10);
+  if (!DIA.test(dia) || !mongoose.isValidObjectId(body.persona)) return null;
+
+  const filtro = {
+    establecimiento: clave(body.establecimiento),
+    persona: body.persona,
+    provisorio: true,
+    $or: [
+      { fecha: { $lt: new Date(`${dia}T00:00:00.000Z`) } },
+      { fecha: { $gt: new Date(`${dia}T23:59:59.999Z`) } },
+    ],
+  };
+  if (ignorarId) filtro._id = { $ne: ignorarId };
+
+  const pendiente = await ParteDiario.findOne(filtro).sort({ fecha: 1 }).select("fecha").lean();
+  if (!pendiente) return null;
+
+  const [a, m, d] = new Date(pendiente.fecha).toISOString().slice(0, 10).split("-");
+  return {
+    motivo: "PROVISORIO_PENDIENTE",
+    fecha: pendiente.fecha,
+    error:
+      `Esta persona tiene partes provisorios del ${d}/${m}/${a}. Hay que completarlos ` +
+      "con los datos reales antes de cargarle otro día.",
+  };
 };
 
 // El CC del parte, con su tractor. Lo necesitan la validación del CC, la del
@@ -202,7 +257,9 @@ const armarDatos = (body) => {
       ? null
       : Number(body[campo]);
   });
-  datos.terminado = Boolean(body.terminado);
+  datos.provisorio = esProvisorio(body);
+  // Un provisorio no da un lote por terminado: eso dispara el pago.
+  datos.terminado = Boolean(body.terminado) && !datos.provisorio;
   ["cc", "tarea"].forEach((campo) => {
     if (!body[campo]) datos[campo] = null;
   });
@@ -295,7 +352,7 @@ export const getAll = async (req, res) => {
     const partes =
       req.query.resumen === "1"
         ? await consulta
-            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido pagoDe")
+            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido pagoDe provisorio")
             .populate([
               { path: "persona", select: "apellidoNombre legajo" },
               { path: "cc", select: "cc" },
@@ -309,9 +366,6 @@ export const getAll = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-
-// "AAAA-MM-DD": el día de un parte.
-const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Con qué horómetro quedó un CC: es el que la planilla pone en "Horóm. entra".
@@ -362,7 +416,7 @@ export const getUltimoHorometro = async (req, res) => {
     }
 
     // CC que no es un equipo gestionado: su única historia son los partes.
-    const filtro = { cc, horomSalida: { $ne: null } };
+    const filtro = { cc, horomSalida: { $ne: null }, provisorio: { $ne: true } };
     if (dia) filtro.fecha = { $lte: new Date(`${dia}T23:59:59.999Z`) };
 
     const ultimo = await ParteDiario.findOne(filtro)
@@ -419,33 +473,62 @@ export const getById = async (req, res) => {
   }
 };
 
+const CC_INEXISTENTE = "El centro de costo no está dado de alta";
+
+// Lo que frena el guardado de un parte común, antes de mirar el horómetro.
+// Devuelve `{ status, cuerpo }` o null si pasa.
+const rechazoDelParte = async (body, { tareaDelPadron, ok }) => {
+  const falta = faltantes(body);
+  if (faltaLaCantidad(body, tareaDelPadron)) falta.push("la cantidad");
+  if (falta.length) return { status: 400, cuerpo: { error: `Falta ${falta.join(", ")}` } };
+  if (tramosSeSolapan(body)) {
+    return {
+      status: 400,
+      cuerpo: {
+        error: "Los dos tramos del día se pisan: la Entrada 2 tiene que ser posterior a la Salida 1",
+      },
+    };
+  }
+  if (!ok) return { status: 400, cuerpo: { error: CC_INEXISTENTE } };
+  const unidadMal = await desmalezadoFueraDeUnidad(body, tareaDelPadron);
+  return unidadMal ? { status: 400, cuerpo: { error: unidadMal } } : null;
+};
+
+// Lo único que frena a un provisorio por sus datos: no saber de quién o de qué
+// día es, y un CC que no existe (no hay a qué enlazarlo).
+const rechazoDelProvisorio = (body, ok) => {
+  const falta = faltantesDelProvisorio(body);
+  if (falta.length) return { status: 400, cuerpo: { error: `Falta ${falta.join(", ")}` } };
+  if (!ok) return { status: 400, cuerpo: { error: CC_INEXISTENTE } };
+  return null;
+};
+
+// "AAAA-MM-DD" de una fecha guardada o de la que llega en el cuerpo.
+const diaDe = (fecha) =>
+  fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha || "").slice(0, 10);
+
 export const create = async (req, res) => {
   try {
-    // Las dos lecturas son independientes: van juntas para no pagar dos idas y
+    // Las lecturas son independientes: van juntas para no pagar varias idas y
     // vueltas al cluster antes de guardar.
-    const [tareaDelPadron, { ok, centro, conTractor }] = await Promise.all([
+    const [tareaDelPadron, { ok, centro, conTractor }, pendiente] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
+      diaProvisorioPendiente(req.body),
     ]);
 
-    const falta = faltantes(req.body);
-    if (faltaLaCantidad(req.body, tareaDelPadron)) falta.push("la cantidad");
-    if (falta.length) {
-      return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
-    }
-    if (tramosSeSolapan(req.body)) {
-      return res.status(400).json({
-        error: "Los dos tramos del día se pisan: la Entrada 2 tiene que ser posterior a la Salida 1",
-      });
-    }
-    if (!ok) {
-      return res.status(400).json({ error: "El centro de costo no está dado de alta" });
-    }
-    const unidadMal = await desmalezadoFueraDeUnidad(req.body, tareaDelPadron);
-    if (unidadMal) return res.status(400).json({ error: unidadMal });
+    const provisorio = esProvisorio(req.body);
+    const rechazo = provisorio
+      ? rechazoDelProvisorio(req.body, ok)
+      : await rechazoDelParte(req.body, { tareaDelPadron, ok });
+    if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+    // Con un día en provisorio no se le carga otro, sea provisorio o completo.
+    if (pendiente) return res.status(409).json(pendiente);
 
-    const chequeo = await chequearHorometroDelParte(req.body, centro);
-    if (!chequeo.ok) return res.status(409).json(chequeo);
+    if (!provisorio) {
+      const chequeo = await chequearHorometroDelParte(req.body, centro);
+      if (!chequeo.ok) return res.status(409).json(chequeo);
+    }
 
     const parte = new ParteDiario(armarDatos(req.body));
     await parte.save();
@@ -453,12 +536,15 @@ export const create = async (req, res) => {
     // Las dos cosas que pasan después de guardar son de colecciones distintas
     // y no se esperan entre sí:
     // - si el CC es un tractor, la lectura entra a su historial de horómetros
-    //   (nunca debe voltear el alta del parte: se registra aparte);
+    //   (nunca debe voltear el alta del parte: se registra aparte). Un
+    //   provisorio no deja lectura: la deja cuando se lo completa;
     // - una jornada que entra en un lote ya terminado cambia el reparto.
     const [, reparto] = await Promise.all([
-      registrarLecturaDeParte(parte, { centro: conTractor ? centro : null, nuevo: true }).catch((e) =>
-        console.error("No se pudo registrar la lectura del parte:", e.message)
-      ),
+      provisorio
+        ? null
+        : registrarLecturaDeParte(parte, { centro: conTractor ? centro : null, nuevo: true }).catch((e) =>
+            console.error("No se pudo registrar la lectura del parte:", e.message)
+          ),
       rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
     ]);
 
@@ -477,38 +563,40 @@ export const create = async (req, res) => {
 
 export const update = async (req, res) => {
   try {
-    // Las tres lecturas son independientes y van juntas. `anterior` es cómo
-    // estaba el parte: si cambió de lote o de tarea, el grupo que deja atrás
-    // también hay que rehacerlo.
-    const [tareaDelPadron, { ok, centro, conTractor }, anterior] = await Promise.all([
+    // Las lecturas son independientes y van juntas. `anterior` es cómo estaba
+    // el parte: si cambió de lote o de tarea, el grupo que deja atrás también
+    // hay que rehacerlo.
+    const [tareaDelPadron, { ok, centro, conTractor }, anterior, pendiente] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       ParteDiario.findById(req.params.id)
-        .select("establecimiento tarea lote fecha pagoDe cc horomIngreso horomSalida")
+        .select("establecimiento persona tarea lote fecha pagoDe cc horomIngreso horomSalida provisorio")
         .lean(),
+      diaProvisorioPendiente(req.body, req.params.id),
     ]);
     if (anterior?.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
 
-    const falta = faltantes(req.body);
-    if (faltaLaCantidad(req.body, tareaDelPadron)) falta.push("la cantidad");
-    if (falta.length) {
-      return res.status(400).json({ error: `Falta ${falta.join(", ")}` });
-    }
-    if (tramosSeSolapan(req.body)) {
-      return res.status(400).json({
-        error: "Los dos tramos del día se pisan: la Entrada 2 tiene que ser posterior a la Salida 1",
-      });
-    }
-    if (!ok) {
-      return res.status(400).json({ error: "El centro de costo no está dado de alta" });
-    }
-    const unidadMal = await desmalezadoFueraDeUnidad(req.body, tareaDelPadron);
-    if (unidadMal) return res.status(400).json({ error: unidadMal });
+    const provisorio = esProvisorio(req.body);
+    const rechazo = provisorio
+      ? rechazoDelProvisorio(req.body, ok)
+      : await rechazoDelParte(req.body, { tareaDelPadron, ok });
+    if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+
+    // Con un día en provisorio no se le carga otro. Corregir un parte completo
+    // de otro día sin cambiarle la fecha ni la persona no es cargar un día: eso
+    // se deja, si no el provisorio de hoy trabaría cualquier arreglo de ayer.
+    const cargaOtroDia =
+      provisorio ||
+      !anterior ||
+      diaDe(anterior.fecha) !== diaDe(req.body.fecha) ||
+      String(anterior.persona || "") !== String(req.body.persona || "");
+    if (pendiente && cargaOtroDia) return res.status(409).json(pendiente);
 
     // Una edición que no toca el horómetro, la fecha ni el CC no se vuelve a
     // validar: lo que la máquina marcó después no tiene por qué frenar que se
-    // corrija una tarea o una hora (27/09/2026).
-    if (!mismoHorometro(anterior, req.body)) {
+    // corrija una tarea o una hora (27/09/2026). El que deja de ser provisorio
+    // sí se valida: su horómetro nunca pasó por acá.
+    if (!provisorio && (anterior?.provisorio || !mismoHorometro(anterior, req.body))) {
       const chequeo = await chequearHorometroDelParte(req.body, centro, req.params.id);
       if (!chequeo.ok) return res.status(409).json(chequeo);
     }
@@ -527,9 +615,11 @@ export const update = async (req, res) => {
         (anterior.lote || "").trim() !== (parte.lote || "").trim());
 
     const [, , reparto] = await Promise.all([
-      registrarLecturaDeParte(parte, { centro: conTractor ? centro : null }).catch((e) =>
-        console.error("No se pudo registrar la lectura del parte:", e.message)
-      ),
+      // Un parte que pasa a provisorio se lleva la lectura que había dejado.
+      (provisorio
+        ? borrarLecturaDeParte(anterior)
+        : registrarLecturaDeParte(parte, { centro: conTractor ? centro : null })
+      ).catch((e) => console.error("No se pudo registrar la lectura del parte:", e.message)),
       cambioDeGrupo ? rehacerReparto(referenciaDeLote(anterior)) : null,
       rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
     ]);

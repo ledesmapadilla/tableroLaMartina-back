@@ -105,6 +105,8 @@ export const consumosDePartes = async (objetivo) => {
 
   const historial = await ParteDiario.find({
     pagoDe: null,
+    // Los provisorios no cuentan: su gasoil y sus horas todavía no son reales.
+    provisorio: { $ne: true },
     fecha: { $gte: new Date(primera - HISTORIAL_DIAS * DIA_MS) },
     $or: [{ cc: { $in: ccs } }, { turbo: { $in: turbos } }],
   })
