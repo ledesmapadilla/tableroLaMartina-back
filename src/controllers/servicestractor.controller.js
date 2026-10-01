@@ -141,7 +141,11 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
     const horometrosMap = {};
 
     const registrarHorometro = (ccRaw, horoRaw, fechaStr, origen, forzar = false) => {
-      if (!ccRaw || !horoRaw) return;
+      if (!ccRaw) return;
+      // Un 0 solo vale si se cargó a mano: es el horómetro nuevo después de un
+      // cambio. En el resto es relleno (los services de observación se guardan
+      // con horómetro 0) y no tiene que pisar nada.
+      if (!horoRaw && !(forzar && horoRaw === 0)) return;
       const strHoro = String(horoRaw).trim();
       if (strHoro.toUpperCase() === "S/H") return;
 
@@ -177,6 +181,11 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
           }
           return;
         }
+
+        // Una carga manual manda sobre las lecturas inferidas que no sean mas
+        // nuevas que ella: si no, despues de un cambio de horometro (el nuevo
+        // arranca de 0) cualquier lectura vieja del anterior la tapaba.
+        if (actual.origen === "manual" && entry.fecha <= actual.fecha) return;
 
         // Lectura inferida: el horometro solo avanza. A igual valor se queda la
         // mas reciente, para que la fecha que se muestra sea la ultima.
