@@ -69,6 +69,9 @@ const IngresoSanPabloSchema = new Schema(
     // En Carros porta escaleras: la salida de escaleras que anota un retiro
     // (enlazado por `origen`). Se crea, se actualiza y se borra con el retiro.
     salida: { type: Boolean, default: false },
+    // El frente de trabajo (02/10/2026): de dónde viene el carro, o adónde
+    // van las escaleras de un retiro. Las de un carro copian el de su carro.
+    frente: { type: Schema.Types.ObjectId, ref: "FrenteSanPablo", default: null },
     observaciones: { type: String, trim: true, default: "" },
   },
   { timestamps: true }

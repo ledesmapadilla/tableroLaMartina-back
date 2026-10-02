@@ -1,7 +1,11 @@
 import IngresoSanPablo from "../models/IngresoSanPablo.js";
 import CentroCosto from "../models/CentroCosto.js";
+import FrenteSanPablo from "../models/FrenteSanPablo.js";
 
-const POPULATE = { path: "cc", select: "cc equipo descripcion" };
+const POPULATE = [
+  { path: "cc", select: "cc equipo descripcion" },
+  { path: "frente", select: "nombre cliente" },
+];
 
 const CARROS = "carros-porta-escaleras";
 const ESCALERAS = "escaleras";
@@ -13,6 +17,7 @@ const numero = (v) => (v === "" || v == null ? null : Number(v));
 const datosDe = (body) => {
   const datos = {};
   if ("cc" in body) datos.cc = body.cc || null;
+  if ("frente" in body) datos.frente = body.frente || null;
   if ("fechaIngreso" in body) datos.fechaIngreso = body.fechaIngreso || null;
   if ("fechaEgreso" in body) datos.fechaEgreso = body.fechaEgreso || null;
   if ("ingresadoPor" in body) datos.ingresadoPor = limpiar(body.ingresadoPor);
@@ -35,6 +40,8 @@ const controlarEgreso = ({ fechaIngreso, fechaEgreso }) =>
     : null;
 
 const ccInexistente = async (id) => Boolean(id) && !(await CentroCosto.exists({ _id: id }));
+const frenteInexistente = async (id) => Boolean(id) && !(await FrenteSanPablo.exists({ _id: id }));
+const avisoFrente = { error: "El frente no está dado de alta" };
 
 // ── Escaleras ──
 // Cada ingreso de un carro porta escaleras da ingreso solo a sus escaleras:
@@ -42,7 +49,7 @@ const ccInexistente = async (id) => Boolean(id) && !(await CentroCosto.exists({ 
 // quién y cantidad. Esos datos los manda el carro; en Escaleras se cargan
 // sanas, rotas y observaciones.
 
-const DEL_CARRO = ["cosecha", "cc", "fechaIngreso", "ingresadoPor", "cantidadEscaleras"];
+const DEL_CARRO = ["cosecha", "cc", "frente", "fechaIngreso", "ingresadoPor", "cantidadEscaleras"];
 
 const sincronizarEscaleras = async (carro) => {
   const datos = Object.fromEntries(DEL_CARRO.map((campo) => [campo, carro[campo]]));
@@ -55,7 +62,7 @@ const sincronizarEscaleras = async (carro) => {
 
 // Y al revés: cada retiro de escaleras anota la salida en Carros porta
 // escaleras, una fila enlazada por `origen` con el carro que se las lleva.
-const DEL_RETIRO = ["cosecha", "cc", "fechaIngreso", "ingresadoPor", "cantidadEscaleras"];
+const DEL_RETIRO = ["cosecha", "cc", "frente", "fechaIngreso", "ingresadoPor", "cantidadEscaleras"];
 
 const sincronizarSalida = async (retiro) => {
   const datos = Object.fromEntries(DEL_RETIRO.map((campo) => [campo, retiro[campo]]));
@@ -82,7 +89,9 @@ const controlarCantidades = ({ cantidadEscaleras, escalerasSanas, escalerasRotas
 // Lo que se carga en "Nuevas escaleras", en "Ingreso sin carro" y en "Retiro
 // de escaleras".
 const DE_NUEVAS = ["fechaIngreso", "ingresadoPor", "cantidadEscaleras", "observaciones"];
-const DE_RETIRO = [...DE_NUEVAS, "cc"];
+// El ingreso sin carro y el retiro llevan además el frente.
+const DE_SIN_CARRO = [...DE_NUEVAS, "frente"];
+const DE_RETIRO = [...DE_SIN_CARRO, "cc"];
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
 
@@ -174,6 +183,9 @@ export const create = async (req, res) => {
       if (!datos.cc || (await ccInexistente(datos.cc))) {
         return res.status(400).json({ error: "Elegí el carro porta escaleras del retiro" });
       }
+      // El retiro dice siempre a qué frente van.
+      if (!datos.frente) return res.status(400).json({ error: "Elegí el frente del retiro" });
+      if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
       const retirado = await carroYaRetirado(cosecha, datos.cc);
       if (retirado) return res.status(400).json({ error: retirado });
       const aviso = await controlarSalida(cosecha, datos.cantidadEscaleras, "retirar");
@@ -189,10 +201,11 @@ export const create = async (req, res) => {
       return res.status(201).json(await ingreso.populate(POPULATE));
     }
     if (req.body.tipo === ESCALERAS && req.body.sinCarro) {
-      const datos = soloCampos(datosDe(req.body), DE_NUEVAS);
+      const datos = soloCampos(datosDe(req.body), DE_SIN_CARRO);
       if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras entran" });
+      if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
       const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, sinCarro: true, cc: null });
-      return res.status(201).json(ingreso);
+      return res.status(201).json(await ingreso.populate(POPULATE));
     }
     if (req.body.tipo === ESCALERAS) {
       const datos = soloCampos(datosDe(req.body), DE_NUEVAS);
@@ -202,6 +215,7 @@ export const create = async (req, res) => {
     }
     const datos = { ...datosDe(req.body), cosecha, tipo: req.body.tipo };
     if (await ccInexistente(datos.cc)) return res.status(400).json({ error: "El CC no existe" });
+    if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
     if (datos.tipo === CARROS) {
       const repetido = await carroYaIngresado(cosecha, datos.cc);
       if (repetido) return res.status(400).json({ error: repetido });
@@ -251,12 +265,13 @@ export const update = async (req, res) => {
         if (aviso) return res.status(400).json({ error: aviso });
       }
       if ("cc" in datos && !datos.cc) return res.status(400).json({ error: "Elegí el carro porta escaleras del retiro" });
+      if ("frente" in datos && !datos.frente) return res.status(400).json({ error: "Elegí el frente del retiro" });
       if ("cc" in datos) {
         const retirado = await carroYaRetirado(actual.cosecha, datos.cc, actual._id);
         if (retirado) return res.status(400).json({ error: retirado });
       }
     } else if (actual.tipo === ESCALERAS && (actual.nuevas || actual.sinCarro)) {
-      datos = soloCampos(datos, DE_NUEVAS);
+      datos = soloCampos(datos, actual.sinCarro ? DE_SIN_CARRO : DE_NUEVAS);
       if ("cantidadEscaleras" in datos && !(datos.cantidadEscaleras > 0)) {
         return res.status(400).json({
           error: actual.nuevas ? "Poné cuántas escaleras nuevas son" : "Poné cuántas escaleras entran",
@@ -273,6 +288,7 @@ export const update = async (req, res) => {
       if (aviso) return res.status(400).json({ error: `${aviso}: corregí primero Escaleras` });
     }
     if (await ccInexistente(datos.cc)) return res.status(400).json({ error: "El CC no existe" });
+    if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
     if (actual.tipo === CARROS && "cc" in datos) {
       const repetido = await carroYaIngresado(actual.cosecha, datos.cc, actual._id);
       if (repetido) return res.status(400).json({ error: repetido });
@@ -289,8 +305,9 @@ export const update = async (req, res) => {
       returnDocument: "after",
       runValidators: true,
     }).populate(POPULATE);
-    if (ingreso.tipo === CARROS) await sincronizarEscaleras({ ...ingreso.toObject(), cc: ingreso.cc?._id });
-    if (ingreso.retiro) await sincronizarSalida({ ...ingreso.toObject(), cc: ingreso.cc?._id });
+    const sinPoblar = { ...ingreso.toObject(), cc: ingreso.cc?._id, frente: ingreso.frente?._id ?? null };
+    if (ingreso.tipo === CARROS) await sincronizarEscaleras(sinPoblar);
+    if (ingreso.retiro) await sincronizarSalida(sinPoblar);
     res.json(ingreso);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -315,5 +332,35 @@ export const remove = async (req, res) => {
     res.json({ message: "Ingreso eliminado" });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Frentes ──
+// Se dan de alta desde Carros porta escaleras: nombre y cliente.
+
+// GET /frentes — por nombre.
+export const getFrentes = async (req, res) => {
+  try {
+    const frentes = await FrenteSanPablo.find()
+      .collation({ locale: "es", strength: 2 })
+      .sort({ nombre: 1 })
+      .lean();
+    res.json(frentes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const createFrente = async (req, res) => {
+  try {
+    const nombre = limpiar(req.body.nombre);
+    const cliente = limpiar(req.body.cliente);
+    if (!nombre) return res.status(400).json({ error: "Poné el nombre del frente" });
+    if (!cliente) return res.status(400).json({ error: "Poné el cliente del frente" });
+    const frente = await FrenteSanPablo.create({ nombre, cliente });
+    res.status(201).json(frente);
+  } catch (error) {
+    if (error.code === 11000) return res.status(400).json({ error: "Ya hay un frente con ese nombre" });
+    res.status(400).json({ error: error.message });
   }
 };
