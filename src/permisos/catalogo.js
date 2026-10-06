@@ -60,6 +60,7 @@ export const PERMISOS_HOY = {
   "altas.proveedores": SIN_SOLICITANTE,
   "altas.personal": SIN_SOLICITANTE,
   "altas.tareas": SIN_SOLICITANTE,
+  "altas.clientes": SIN_SOLICITANTE,
   "altas.camionetas": TODOS,
   "altas.tractores": TODOS,
   "altas.colectivos": TODOS,

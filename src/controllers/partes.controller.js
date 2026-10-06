@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { clienteDelPadron, NO_ES_DEL_PADRON } from "./clientes.controller.js";
 import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
 import ParteDiario from "../models/ParteDiario.js";
 import {
@@ -156,6 +157,8 @@ const faltantes = (body) => {
   if (!body.fecha) falta.push("la fecha");
   if (!body.persona) falta.push("la persona");
   if (!body.tarea) falta.push("la tarea");
+  // El cliente define con qué precio se paga (04/10/2026).
+  if (!String(body.cliente || "").trim()) falta.push("el cliente");
   // Terminado es el lote terminado: sin lote no se puede marcar (24/09/2026).
   if (body.terminado && !String(body.lote || "").trim()) falta.push("el lote del parte terminado");
   // La cantidad se controla aparte (`faltaLaCantidad`): en San Pablo hay
@@ -174,6 +177,8 @@ const faltantesDelProvisorio = (body) => {
   const falta = [];
   if (!body.fecha) falta.push("la fecha");
   if (!body.persona) falta.push("la persona");
+  // También el provisorio: viene puesto en Citrusvil y no puede faltar.
+  if (!String(body.cliente || "").trim()) falta.push("el cliente");
   if (!sinCantidad(body) && isNaN(Number(body.cantidad))) falta.push("una cantidad válida");
   return falta;
 };
@@ -511,10 +516,11 @@ export const create = async (req, res) => {
   try {
     // Las lecturas son independientes: van juntas para no pagar varias idas y
     // vueltas al cluster antes de guardar.
-    const [tareaDelPadron, { ok, centro, conTractor }, pendiente] = await Promise.all([
+    const [tareaDelPadron, { ok, centro, conTractor }, pendiente, cliente] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       diaProvisorioPendiente(req.body),
+      clienteDelPadron(req.body.cliente),
     ]);
 
     const provisorio = esProvisorio(req.body);
@@ -522,6 +528,9 @@ export const create = async (req, res) => {
       ? rechazoDelProvisorio(req.body, ok)
       : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+    // El cliente tiene que estar en el padrón; se guarda escrito como allá.
+    if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
+    req.body.cliente = cliente;
     // Con un día en provisorio no se le carga otro, sea provisorio o completo.
     if (pendiente) return res.status(409).json(pendiente);
 
@@ -566,13 +575,14 @@ export const update = async (req, res) => {
     // Las lecturas son independientes y van juntas. `anterior` es cómo estaba
     // el parte: si cambió de lote o de tarea, el grupo que deja atrás también
     // hay que rehacerlo.
-    const [tareaDelPadron, { ok, centro, conTractor }, anterior, pendiente] = await Promise.all([
+    const [tareaDelPadron, { ok, centro, conTractor }, anterior, pendiente, cliente] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       ParteDiario.findById(req.params.id)
         .select("establecimiento persona tarea lote fecha pagoDe cc horomIngreso horomSalida provisorio")
         .lean(),
       diaProvisorioPendiente(req.body, req.params.id),
+      clienteDelPadron(req.body.cliente),
     ]);
     if (anterior?.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
 
@@ -581,6 +591,8 @@ export const update = async (req, res) => {
       ? rechazoDelProvisorio(req.body, ok)
       : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+    if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
+    req.body.cliente = cliente;
 
     // Con un día en provisorio no se le carga otro. Corregir un parte completo
     // de otro día sin cambiarle la fecha ni la persona no es cargar un día: eso

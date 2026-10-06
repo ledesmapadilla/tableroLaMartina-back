@@ -329,7 +329,8 @@ export const recalcularLote = async ({
     const datosDelPago = {
       fecha: cierre.fecha,
       persona: p.persona,
-      cliente: p.cliente || "",
+      // Sin cliente, el que se usa para pagarlo: Citrusvil.
+      cliente: p.cliente || "Citrusvil",
       cantidad: valores[i],
       repartido: true,
       periodo: periodoDelPago,
