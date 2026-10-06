@@ -47,6 +47,9 @@ const itemSchema = new mongoose.Schema({
     default: undefined,
   },
   oc:         { type: String },
+  // Hecho desde Reparaciones San Pablo (06/10/2026): el número lleva una R
+  // (SP-R045). Va también en el pedido; en el ítem viaja a todas las pantallas.
+  origen:     { type: String, enum: ['reparaciones'], default: undefined },
   // El adjunto del ítem (19/09/2026): el presupuesto que sube el analista o lo
   // que suma el taller al pedir. El archivo vive en Cloudinary; acá queda la
   // URL con la que se abre, el nombre con el que se subió y el public_id con el
@@ -75,6 +78,8 @@ const pedidoSchema = new mongoose.Schema({
   // Lo que abarca a todos los ítems (28/09/2026): el presupuesto único, el
   // remito de todo lo pedido. El de cada ítem sigue en el ítem.
   archivo:    { type: archivoAdjuntoSchema, default: undefined },
+  // 'reparaciones' si salió de Reparaciones San Pablo: el número lleva una R.
+  origen:     { type: String, enum: ['reparaciones'], default: undefined },
 }, { timestamps: true })
 
 pedidoSchema.index({ 'items.estado': 1 })

@@ -8,6 +8,8 @@ const ocItemSchema = new mongoose.Schema({
   itemId:          { type: String, required: true },
   nro_pedido:      { type: Number },
   _src:            { type: String },
+  // 'reparaciones' si el pedido salió de Reparaciones San Pablo (SP-R045).
+  origen:          { type: String },
   nombre_repuesto: { type: String },
   cant:            { type: Number },
   precio_unitario: { type: Number },

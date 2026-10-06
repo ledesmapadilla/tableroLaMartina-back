@@ -1,6 +1,7 @@
 import IngresoSanPablo from "../models/IngresoSanPablo.js";
 import CentroCosto from "../models/CentroCosto.js";
 import FrenteSanPablo from "../models/FrenteSanPablo.js";
+import ResponsablesSanPablo from "../models/ResponsablesSanPablo.js";
 
 const POPULATE = [
   { path: "cc", select: "cc equipo descripcion" },
@@ -393,6 +394,56 @@ export const createFrente = async (req, res) => {
     res.status(201).json(frente);
   } catch (error) {
     if (error.code === 11000) return res.status(400).json({ error: "Ya hay un frente con ese nombre" });
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ── Responsables ──
+// Los de una pantalla (`seccion`, por ahora "manitous-general") en una
+// cosecha. Se guarda la lista entera de una vez: así se agregan, se quitan y
+// quedan en el orden de la pantalla.
+
+const SECCIONES = ["manitous-general"];
+
+const claveDe = (fuente) => {
+  const cosecha = Number(fuente.cosecha);
+  const seccion = limpiar(fuente.seccion);
+  if (!Number.isInteger(cosecha) || cosecha < 2027) return { error: "Cosecha inválida" };
+  if (!SECCIONES.includes(seccion)) return { error: "Sección inválida" };
+  return { cosecha, seccion };
+};
+
+export const getResponsables = async (req, res) => {
+  try {
+    const clave = claveDe(req.query);
+    if (clave.error) return res.status(400).json(clave);
+    const doc = await ResponsablesSanPablo.findOne(clave).lean();
+    res.json({ ...clave, nombres: doc?.nombres ?? [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveResponsables = async (req, res) => {
+  try {
+    const clave = claveDe(req.body);
+    if (clave.error) return res.status(400).json(clave);
+    if (!Array.isArray(req.body.nombres)) return res.status(400).json({ error: "Faltan los nombres" });
+    // Sin vacíos ni repetidos (sin distinguir mayúsculas).
+    const vistos = new Set();
+    const nombres = req.body.nombres.map(limpiar).filter((n) => {
+      const k = n.toLocaleLowerCase("es");
+      if (!n || vistos.has(k)) return false;
+      vistos.add(k);
+      return true;
+    });
+    const doc = await ResponsablesSanPablo.findOneAndUpdate(
+      clave,
+      { $set: { nombres } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json({ ...clave, nombres: doc.nombres });
+  } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };

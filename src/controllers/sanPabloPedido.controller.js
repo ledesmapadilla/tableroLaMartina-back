@@ -1,4 +1,5 @@
 import SanPabloPedido from '../models/SanPabloPedido.js'
+import ChequeoSanPablo from '../models/ChequeoSanPablo.js'
 import { revisarCambioDeItem } from '../permisos/pedidos.js'
 
 // "AAAA-MM-DD" de hoy en Argentina. El servidor corre en UTC: desde las 21 hs
@@ -95,6 +96,8 @@ export const getHistorialGerencia = async (req, res) => {
           // El presupuesto elegido: el costo sale de ese y no siempre del mínimo.
           elegido: i.elegido,
           nro_pedido: p.nro_pedido,
+          // Hecho desde Reparaciones: el número lleva una R (SP-R045).
+          origen: i.origen,
           fecha: p.fecha,
           pedidoId: p._id,
           accionesGerencia: i.historial.filter(h => h.usuario === 'Gerencia'),
@@ -186,6 +189,13 @@ export const borrarItem = async (req, res) => {
     pedido.items.pull(req.params.itemId)
     if (pedido.items.length === 0) {
       await SanPabloPedido.findByIdAndDelete(req.params.id)
+      // Si salió de una tabla de Reparaciones (Manitous), el repuesto vuelve
+      // a quedar guardado sin pedir: se puede corregir y pedir de nuevo.
+      await ChequeoSanPablo.updateMany(
+        { 'repuestos.pedido': pedido._id },
+        { $set: { 'repuestos.$[r].pedido': null, 'repuestos.$[r].nro_pedido': null } },
+        { arrayFilters: [{ 'r.pedido': pedido._id }] }
+      )
     } else {
       await pedido.save()
     }
