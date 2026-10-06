@@ -26,6 +26,7 @@ export const EQUIPOS = [
   { equipo: "Tolva", grupo: "Tolvas" },
   { equipo: "Carro porta escaleras", grupo: "Carros porta escaleras" },
   { equipo: "Carro porta bines", grupo: "Carros porta bines" },
+  { equipo: "Carro porta bolsones", grupo: "Carros porta bolsones" },
   { equipo: "Camioneta", grupo: "Camioneta", flota: "Camionetas" },
   { equipo: "Colectivo", grupo: "Colectivos", flota: "Colectivos" },
   { equipo: "Otros", grupo: "Otros" },

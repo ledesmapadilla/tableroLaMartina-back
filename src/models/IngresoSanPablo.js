@@ -12,6 +12,7 @@ export const TIPOS_INGRESO = [
   "colectivos",
   "tolvas",
   "carros-porta-bines",
+  "carros-porta-bolsones",
   "carros-porta-escaleras",
   "escaleras",
   "pulverizadoras",
@@ -54,8 +55,10 @@ const IngresoSanPabloSchema = new Schema(
     // Van sin carro; `cantidadEscaleras` es cuántas e `ingresadoPor`, quién las
     // hizo.
     nuevas: { type: Boolean, default: false },
-    // En Escaleras: escaleras que entran al taller sin carro ("Ingreso sin
-    // carro"). `cantidadEscaleras` es cuántas e `ingresadoPor`, quién las trae.
+    // En Escaleras: escaleras que entran al taller fuera del ingreso de un
+    // carro (el botón "Ingreso"). `cantidadEscaleras` es cuántas,
+    // `ingresadoPor` quién las trae y `cc` el carro en que vienen, o null si
+    // no vienen en ninguno ("S/N", 06/10/2026).
     sinCarro: { type: Boolean, default: false },
     // En Escaleras: un retiro ("Retiro de escaleras"). `cc` es el carro que se
     // las lleva, `cantidadEscaleras` cuántas e `ingresadoPor` el supervisor.

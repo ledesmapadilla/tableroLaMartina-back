@@ -78,7 +78,7 @@ const sincronizarSalida = async (retiro) => {
 const controlarCantidades = ({ cantidadEscaleras, escalerasSanas, escalerasRotas, escalerasReparadas }) => {
   const total = (escalerasSanas ?? 0) + (escalerasRotas ?? 0);
   if (cantidadEscaleras != null && total > cantidadEscaleras) {
-    return `Sanas y rotas suman ${total}, y el carro trajo ${cantidadEscaleras}`;
+    return `Sanas y rotas suman ${total}, y entraron ${cantidadEscaleras}`;
   }
   if ((escalerasReparadas ?? 0) > (escalerasRotas ?? 0)) {
     return `Las reparadas (${escalerasReparadas}) no pueden ser más que las rotas (${escalerasRotas ?? 0})`;
@@ -90,8 +90,12 @@ const controlarCantidades = ({ cantidadEscaleras, escalerasSanas, escalerasRotas
 // de escaleras".
 const DE_NUEVAS = ["fechaIngreso", "ingresadoPor", "cantidadEscaleras", "observaciones"];
 // El ingreso sin carro y el retiro llevan además el frente.
-const DE_SIN_CARRO = [...DE_NUEVAS, "frente"];
-const DE_RETIRO = [...DE_SIN_CARRO, "cc"];
+// El ingreso ("Ingreso", antes "Ingreso sin carro") lleva el carro en que
+// vienen o ninguno, que en pantalla es "S/N" (06/10/2026). Desde que se borró
+// la página de Carros porta escaleras, es también el ingreso del carro, y
+// lleva las sanas, rotas y reparadas que antes iban en la fila del carro.
+const DE_RETIRO = [...DE_NUEVAS, "frente", "cc"];
+const DE_SIN_CARRO = [...DE_RETIRO, "escalerasSanas", "escalerasRotas", "escalerasReparadas"];
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
 
@@ -132,6 +136,23 @@ const avisoCosecha = { error: "Falta la cosecha del ingreso" };
 const carroYaIngresado = async (cosecha, cc, ignorarId = null) => {
   if (!cc) return null;
   const otro = await IngresoSanPablo.findOne({ cosecha, tipo: CARROS, cc, salida: { $ne: true }, _id: { $ne: ignorarId } })
+    .populate(POPULATE)
+    .lean();
+  return otro ? `El carro ${otro.cc?.cc || ""} ya tiene un ingreso en la cosecha ${cosecha}` : null;
+};
+
+// Un carro entra con escaleras una sola vez por cosecha: por el Ingreso de
+// Escaleras o, lo cargado antes del 06/10/2026, por la página de Carros porta
+// escaleras. `ignorarId` es el ingreso que se está editando.
+const carroYaEntro = async (cosecha, cc, ignorarId = null) => {
+  if (!cc) return null;
+  const otro = await IngresoSanPablo.findOne({
+    cosecha,
+    tipo: ESCALERAS,
+    cc,
+    $or: [{ sinCarro: true }, { origen: { $ne: null } }],
+    _id: { $ne: ignorarId },
+  })
     .populate(POPULATE)
     .lean();
   return otro ? `El carro ${otro.cc?.cc || ""} ya tiene un ingreso en la cosecha ${cosecha}` : null;
@@ -204,7 +225,12 @@ export const create = async (req, res) => {
       const datos = soloCampos(datosDe(req.body), DE_SIN_CARRO);
       if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras entran" });
       if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
-      const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, sinCarro: true, cc: null });
+      if (await ccInexistente(datos.cc)) return res.status(400).json({ error: "El carro no existe" });
+      const entro = await carroYaEntro(cosecha, datos.cc);
+      if (entro) return res.status(400).json({ error: entro });
+      const cantidades = controlarCantidades(datos);
+      if (cantidades) return res.status(400).json({ error: cantidades });
+      const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, sinCarro: true });
       return res.status(201).json(await ingreso.populate(POPULATE));
     }
     if (req.body.tipo === ESCALERAS) {
@@ -276,6 +302,12 @@ export const update = async (req, res) => {
         return res.status(400).json({
           error: actual.nuevas ? "Poné cuántas escaleras nuevas son" : "Poné cuántas escaleras entran",
         });
+      }
+      if (actual.sinCarro) {
+        const entro = await carroYaEntro(actual.cosecha, "cc" in datos ? datos.cc : actual.cc, actual._id);
+        if (entro) return res.status(400).json({ error: entro });
+        const cantidades = controlarCantidades({ ...actual.toObject(), ...datos });
+        if (cantidades) return res.status(400).json({ error: cantidades });
       }
     } else if (actual.tipo === ESCALERAS && actual.origen) {
       for (const campo of DEL_CARRO) delete datos[campo];
