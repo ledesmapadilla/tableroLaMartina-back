@@ -334,10 +334,13 @@ export const update = async (req, res) => {
       }
     }
 
-    const ingreso = await IngresoSanPablo.findByIdAndUpdate(req.params.id, datos, {
-      returnDocument: "after",
-      runValidators: true,
-    }).populate(POPULATE);
+    // Se guarda sobre el documento y no con findByIdAndUpdate: el carro es
+    // obligatorio según la fila (no en nuevas, bajas ni ingresos S/N), y en un
+    // update esa regla se evalúa sin la fila y pedía el carro también a los S/N
+    // (07/10/2026).
+    actual.set(datos);
+    await actual.save();
+    const ingreso = await actual.populate(POPULATE);
     const sinPoblar = { ...ingreso.toObject(), cc: ingreso.cc?._id, frente: ingreso.frente?._id ?? null };
     if (ingreso.tipo === CARROS) await sincronizarEscaleras(sinPoblar);
     if (ingreso.retiro) await sincronizarSalida(sinPoblar);
