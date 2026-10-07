@@ -159,19 +159,19 @@ chequear("borrada: los demás vuelven", await pagos([a._id, b._id]), [400, 400])
 const e = await nuevoParte("2026-09-10", 2);
 r = await rehacer(e.fecha);
 chequear("jornada del día del cierre: entra al grupo", r.jornadas, 4);
-chequear("reparto con 12 h", await cantidades([c._id, e._id]), [166.67, 166.67]);
-chequear("reparto con 12 h: renglones", await pagos([a._id, b._id]), [333.33, 333.33]);
+chequear("reparto con 12 h", await cantidades([c._id, e._id]), [167, 167]);
+chequear("reparto con 12 h: renglones", await pagos([a._id, b._id]), [333, 333]);
 
 // ── dos personas dan por terminado el mismo lote y la misma tarea ──
 await marcar(e, true);
 r = await rehacer(e.fecha);
 chequear("dos cierres el mismo día: sigue siendo uno", r.jornadas, 4);
-chequear("dos cierres: el reparto no cambia", await cantidades([c._id, e._id]), [166.67, 166.67]);
+chequear("dos cierres: el reparto no cambia", await cantidades([c._id, e._id]), [167, 167]);
 
 await marcar(c, false);
 r = await rehacer(c.fecha);
 chequear("se desmarca uno de los dos: sigue cerrado", r.estado, "repartido");
-chequear("y el reparto se mantiene", await pagos([a._id, b._id]), [333.33, 333.33]);
+chequear("y el reparto se mantiene", await pagos([a._id, b._id]), [333, 333]);
 
 await marcar(e, false);
 r = await rehacer(e.fecha);

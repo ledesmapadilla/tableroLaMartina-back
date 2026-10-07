@@ -40,6 +40,28 @@ const ParteDiarioSchema = new Schema(
     // Si el trabajo quedó terminado o sigue en proceso. Se alterna desde la
     // tabla con el círculo verde / rojo (17/09/2026).
     terminado: { type: Boolean, default: false },
+    // Varios lotes en el mismo día (07/10/2026): en herbicida, desmalezado y
+    // fertilización de San Pablo la gente dice "hice el 11, el 12 y el 13" sin
+    // saber las horas de cada uno. El parte lleva el horario real del día una
+    // sola vez y acá cada lote, con su estado y lo que le tocó del reparto.
+    // Para el reparto, las horas del día se dividen entre los lotes según su
+    // medida (plantas o hectáreas). Solo se usa con dos lotes o más: entonces
+    // `lote` es la lista escrita ("11, 12, 13") para mostrar, `terminado` dice
+    // si hay alguno terminado y `cantidad` es la suma de lo repartido. Con un
+    // solo lote queda vacío y todo va como siempre.
+    lotes: {
+      type: [
+        new Schema(
+          {
+            lote: { type: String, trim: true, required: true },
+            terminado: { type: Boolean, default: false },
+            cantidad: { type: Number, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     observacion: { type: String, trim: true, default: "" },
 
     // Un parte con fecha posterior al cierre de un mes va al certificado

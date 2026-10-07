@@ -24,7 +24,7 @@ const RepuestoSchema = new Schema(
 // x, con el problema escrito) y los repuestos pedidos.
 const ChequeoSanPabloSchema = new Schema(
   {
-    cosecha: { type: Number, required: true, min: 2027 },
+    cosecha: { type: Number, required: true, min: 2026 },
     seccion: { type: String, trim: true, required: true },
     sistema: { type: String, trim: true, required: true },
     item: { type: String, trim: true, required: true },

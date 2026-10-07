@@ -5,7 +5,7 @@ import { Schema, model } from "mongoose";
 // cosecha + sección, con los nombres en el orden en que se cargaron.
 const ResponsablesSanPabloSchema = new Schema(
   {
-    cosecha: { type: Number, required: true, min: 2027 },
+    cosecha: { type: Number, required: true, min: 2026 },
     seccion: { type: String, trim: true, required: true },
     nombres: { type: [{ type: String, trim: true }], default: [] },
   },

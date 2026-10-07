@@ -10,9 +10,11 @@ import CentroCosto from "../models/CentroCosto.js";
 import Tarea from "../models/Tarea.js";
 import {
   recalcularLote,
-  referenciaDeLote,
+  recalcularLotes,
+  referenciasDeLotes,
   cierresDeLotes,
   desmalezadoFueraDeUnidad,
+  esTareaDeLote,
 } from "../services/repartoLotes.service.js";
 import {
   validarLectura,
@@ -126,12 +128,37 @@ const DIA = /^\d{4}-\d{2}-\d{2}$/;
 const sinCantidad = (body) =>
   body.cantidad === "" || body.cantidad === null || body.cantidad === undefined;
 
-// En San Pablo el desmalezado y el herbicida se cargan sin cantidad
+// En San Pablo el desmalezado, el herbicida y la fertilización se cargan sin cantidad
 // (17/09/2026); las demás tareas la llevan, como en Caspinchango.
-export const TAREAS_SIN_CANTIDAD = ["desmalezado", "herbicida"];
+export const TAREAS_SIN_CANTIDAD = ["desmalezado", "herbicida", "fertilizacion"];
 
 const sinAcentos = (t) =>
   (t || "").toString().normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+// "L 12", "l12" y "L-12" son el mismo lote, como en el padrón.
+const comparableLote = (valor) => sinAcentos(valor).replace(/[^a-z0-9]/g, "");
+
+/**
+ * Los lotes de un parte de varios lotes (07/10/2026), como llegan del
+ * formulario: `[{ lote, terminado }]`, sin vacíos ni repetidos. Devuelve null si
+ * no quedan dos o más: entonces el parte es de un solo lote y va por `lote`.
+ */
+const lotesDelCuerpo = (body) => {
+  if (!Array.isArray(body.lotes)) return null;
+  const vistos = new Set();
+  const lotes = [];
+  for (const l of body.lotes) {
+    const lote = String(l?.lote || "").trim();
+    const c = comparableLote(lote);
+    if (!c || vistos.has(c)) continue;
+    vistos.add(c);
+    lotes.push({ lote, terminado: l.terminado === true || l.terminado === "true" });
+  }
+  return lotes.length >= 2 ? lotes : null;
+};
+
+const VARIOS_LOTES_SOLO_POR_LOTE =
+  "Varios lotes en un mismo parte van solo en herbicida, desmalezado y fertilización de San Pablo";
 
 // La tarea del padrón, leída una sola vez por parte guardado: la usan la
 // validación de la cantidad y el pago por lote terminado. Solo hace falta en
@@ -139,7 +166,7 @@ const sinAcentos = (t) =>
 // Caspinchango, que es la planilla grande, guardar no paga esta consulta.
 const buscarTareaDelParte = async (body) => {
   if (clave(body.establecimiento) !== "san-pablo") return null;
-  if (!sinCantidad(body) && !(body.lote || "").trim()) return null;
+  if (!sinCantidad(body) && !(body.lote || "").trim() && !lotesDelCuerpo(body)) return null;
   if (!mongoose.isValidObjectId(body.tarea)) return null;
   return Tarea.findById(body.tarea).select("tarea unidad").lean();
 };
@@ -265,6 +292,19 @@ const armarDatos = (body) => {
   datos.provisorio = esProvisorio(body);
   // Un provisorio no da un lote por terminado: eso dispara el pago.
   datos.terminado = Boolean(body.terminado) && !datos.provisorio;
+  // Varios lotes en el día (07/10/2026): `lote` queda como la lista escrita y
+  // `terminado` dice si hay alguno terminado. La cantidad la arma el reparto
+  // de cada lote, así que arranca vacía y se vuelve a calcular al guardar.
+  const lotes = lotesDelCuerpo(body);
+  if (lotes) {
+    datos.lotes = lotes.map((l) => ({ ...l, terminado: l.terminado && !datos.provisorio, cantidad: null }));
+    datos.lote = lotes.map((l) => l.lote).join(", ");
+    datos.terminado = datos.lotes.some((l) => l.terminado);
+    datos.cantidad = null;
+    datos.repartido = false;
+  } else {
+    datos.lotes = [];
+  }
   ["cc", "tarea"].forEach((campo) => {
     if (!body[campo]) datos[campo] = null;
   });
@@ -278,8 +318,10 @@ const armarDatos = (body) => {
 // Cargar, editar o borrar una jornada cambia el reparto del lote si el grupo
 // ya está cerrado (las horas que se reparten son otras). Nunca debe voltear el
 // guardado del parte: se rehace aparte y, si falla, queda en el log.
-const rehacerReparto = (referencia) =>
-  recalcularLote(referencia).catch((e) => {
+//
+// Un parte de varios lotes rehace el grupo de cada uno (07/10/2026).
+const rehacerReparto = (referencias) =>
+  recalcularLotes(referencias, recalcularLote).catch((e) => {
     console.error("No se pudo rehacer el pago por lote:", e.message);
     return { estado: "nada" };
   });
@@ -357,7 +399,7 @@ export const getAll = async (req, res) => {
     const partes =
       req.query.resumen === "1"
         ? await consulta
-            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote terminado repartido pagoDe provisorio")
+            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote lotes terminado repartido pagoDe provisorio")
             .populate([
               { path: "persona", select: "apellidoNombre legajo" },
               { path: "cc", select: "cc" },
@@ -495,8 +537,16 @@ const rechazoDelParte = async (body, { tareaDelPadron, ok }) => {
     };
   }
   if (!ok) return { status: 400, cuerpo: { error: CC_INEXISTENTE } };
-  const unidadMal = await desmalezadoFueraDeUnidad(body, tareaDelPadron);
-  return unidadMal ? { status: 400, cuerpo: { error: unidadMal } } : null;
+  const lotes = lotesDelCuerpo(body);
+  if (lotes && (!tareaDelPadron || !esTareaDeLote(tareaDelPadron.tarea))) {
+    return { status: 400, cuerpo: { error: VARIOS_LOTES_SOLO_POR_LOTE } };
+  }
+  // Con varios lotes, cada uno tiene que ir con la medida de la tarea.
+  for (const lote of lotes ? lotes.map((l) => l.lote) : [body.lote]) {
+    const unidadMal = await desmalezadoFueraDeUnidad({ ...body, lote }, tareaDelPadron);
+    if (unidadMal) return { status: 400, cuerpo: { error: unidadMal } };
+  }
+  return null;
 };
 
 // Lo único que frena a un provisorio por sus datos: no saber de quién o de qué
@@ -554,7 +604,7 @@ export const create = async (req, res) => {
         : registrarLecturaDeParte(parte, { centro: conTractor ? centro : null, nuevo: true }).catch((e) =>
             console.error("No se pudo registrar la lectura del parte:", e.message)
           ),
-      rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
+      rehacerReparto(referenciasDeLotes(parte, { tareaDelPadron })),
     ]);
 
     // Si hubo reparto el parte quedó con la cantidad que le tocó y se lo vuelve
@@ -579,7 +629,7 @@ export const update = async (req, res) => {
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       ParteDiario.findById(req.params.id)
-        .select("establecimiento persona tarea lote fecha pagoDe cc horomIngreso horomSalida provisorio")
+        .select("establecimiento persona tarea lote lotes terminado repartido cantidad fecha pagoDe cc horomIngreso horomSalida provisorio")
         .lean(),
       diaProvisorioPendiente(req.body, req.params.id),
       clienteDelPadron(req.body.cliente),
@@ -621,19 +671,24 @@ export const update = async (req, res) => {
     );
     if (!parte) return res.status(404).json({ error: "Parte no encontrado" });
 
-    const cambioDeGrupo =
-      anterior &&
-      (String(anterior.tarea || "") !== String(parte.tarea?._id || "") ||
-        (anterior.lote || "").trim() !== (parte.lote || "").trim());
+    // Los grupos que el parte deja atrás (otra tarea, o un lote que sacó)
+    // también hay que rehacerlos. Primero los nuevos y después esos, de a uno:
+    // pueden tocar el mismo parte.
+    const nuevas = referenciasDeLotes(parte, { tareaDelPadron });
+    const claveDe = (r) => `${String(r.tarea || "")}|${(r.lote || "").trim()}`;
+    const yaVan = new Set(nuevas.map(claveDe));
+    const dejadas = anterior ? referenciasDeLotes(anterior).filter((r) => !yaVan.has(claveDe(r))) : [];
 
-    const [, , reparto] = await Promise.all([
+    const [, reparto] = await Promise.all([
       // Un parte que pasa a provisorio se lleva la lectura que había dejado.
       (provisorio
         ? borrarLecturaDeParte(anterior)
         : registrarLecturaDeParte(parte, { centro: conTractor ? centro : null })
       ).catch((e) => console.error("No se pudo registrar la lectura del parte:", e.message)),
-      cambioDeGrupo ? rehacerReparto(referenciaDeLote(anterior)) : null,
-      rehacerReparto(referenciaDeLote(parte, { tareaDelPadron })),
+      rehacerReparto(nuevas).then(async (r) => {
+        if (dejadas.length) await rehacerReparto(dejadas);
+        return r;
+      }),
     ]);
     const guardado =
       reparto.estado === "repartido"
@@ -666,7 +721,7 @@ export const remove = async (req, res) => {
     // Las horas que se repartían eran otras: el grupo que queda se rehace sin
     // esta jornada. Va en la respuesta para que la pantalla sepa si le cambió
     // algo a las otras filas.
-    const reparto = await rehacerReparto(referenciaDeLote(parte));
+    const reparto = await rehacerReparto(referenciasDeLotes(parte));
 
     res.json({ message: "Parte eliminado", reparto });
   } catch (error) {

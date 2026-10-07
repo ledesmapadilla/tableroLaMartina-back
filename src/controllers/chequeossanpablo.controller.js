@@ -28,7 +28,7 @@ const claveDe = (fuente) => {
   const cosecha = Number(fuente.cosecha);
   const seccion = limpiar(fuente.seccion);
   const sistema = limpiar(fuente.sistema);
-  if (!Number.isInteger(cosecha) || cosecha < 2027) return { error: "Cosecha inválida" };
+  if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
   if (!SECCIONES.includes(seccion)) return { error: "Sección inválida" };
   if (!SISTEMAS.includes(sistema)) return { error: "Sistema inválido" };
   return { cosecha, seccion, sistema };

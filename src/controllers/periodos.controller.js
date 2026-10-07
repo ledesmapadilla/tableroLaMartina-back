@@ -1,7 +1,7 @@
 import PeriodoCertificado from "../models/PeriodoCertificado.js";
 import ParteDiario from "../models/ParteDiario.js";
 import { CLAVES, POR_DEFECTO } from "../models/Establecimiento.js";
-import { recalcularLote } from "../services/repartoLotes.service.js";
+import { recalcularLote, lotesDelParte } from "../services/repartoLotes.service.js";
 
 // El establecimiento llega por query. Sin el se asume Caspinchango, que es el
 // unico que existia antes de separar los campos: asi los links viejos y las
@@ -79,14 +79,17 @@ const rehacerRepartos = async (establecimiento, rangos) => {
     repartido: true,
     $or: fechas.map((fecha) => ({ fecha })),
   })
-    .select("tarea lote fecha")
+    .select("tarea lote lotes terminado repartido cantidad fecha")
     .lean();
   const hechos = new Set();
+  // Un parte de varios lotes rehace el grupo de cada uno (07/10/2026).
   for (const p of partes) {
-    const clave = `${p.tarea}|${p.lote}|${p.fecha.toISOString()}`;
-    if (hechos.has(clave)) continue;
-    hechos.add(clave);
-    await recalcularLote({ establecimiento, tarea: p.tarea, lote: p.lote, fecha: p.fecha });
+    for (const { lote } of lotesDelParte(p)) {
+      const clave = `${p.tarea}|${lote}|${p.fecha.toISOString()}`;
+      if (hechos.has(clave)) continue;
+      hechos.add(clave);
+      await recalcularLote({ establecimiento, tarea: p.tarea, lote, fecha: p.fecha });
+    }
   }
 };
 

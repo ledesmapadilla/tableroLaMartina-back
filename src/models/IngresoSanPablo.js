@@ -21,9 +21,9 @@ export const TIPOS_INGRESO = [
 const IngresoSanPabloSchema = new Schema(
   {
     tipo: { type: String, enum: TIPOS_INGRESO, required: true },
-    // Para qué cosecha se prepara el equipo (2027, 2028…). Lo cargado hasta el
+    // Para qué cosecha se prepara el equipo (2026, 2027…). Lo cargado hasta el
     // 16/09/2026 quedó en la 2027.
-    cosecha: { type: Number, required: true, min: 2027 },
+    cosecha: { type: Number, required: true, min: 2026 },
     // Las escaleras nuevas (hechas en el taller), las que entran sin carro y
     // las bajas no van con ningún carro.
     cc: {

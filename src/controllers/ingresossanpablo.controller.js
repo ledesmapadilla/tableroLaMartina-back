@@ -128,7 +128,7 @@ const controlarSalida = async (cosecha, cantidad, accion, ignorarId = null) => {
 // La cosecha se fija al crear el ingreso y no cambia.
 const cosechaDe = (valor) => {
   const n = Number(valor);
-  return Number.isInteger(n) && n >= 2027 ? n : null;
+  return Number.isInteger(n) && n >= 2026 ? n : null;
 };
 const avisoCosecha = { error: "Falta la cosecha del ingreso" };
 
@@ -408,7 +408,7 @@ const SECCIONES = ["manitous-general"];
 const claveDe = (fuente) => {
   const cosecha = Number(fuente.cosecha);
   const seccion = limpiar(fuente.seccion);
-  if (!Number.isInteger(cosecha) || cosecha < 2027) return { error: "Cosecha inválida" };
+  if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
   if (!SECCIONES.includes(seccion)) return { error: "Sección inválida" };
   return { cosecha, seccion };
 };

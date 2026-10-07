@@ -23,8 +23,9 @@ import PeriodoCertificado from "../models/PeriodoCertificado.js";
 
 // Las tareas que se pagan por lote terminado. Son las mismas que llevan el
 // círculo de estado en la planilla (`tareasConEstado` en el front). El
-// pulverizado salió el 25/09/2026: se carga con la cantidad a mano.
-export const TAREAS_POR_LOTE = ["herbicida", "desmalezado"];
+// pulverizado salió el 25/09/2026: se carga con la cantidad a mano. La
+// fertilización entró el 07/10/2026 (en plantas, como el herbicida).
+export const TAREAS_POR_LOTE = ["herbicida", "desmalezado", "fertilizacion"];
 
 // Lo que se escribe en el parte que se mueve de mes. Sirve de marca: al
 // deshacer el reparto solo se limpian los períodos que puso el sistema.
@@ -87,19 +88,104 @@ export const desmalezadoFueraDeUnidad = async ({ establecimiento, lote }, tareaD
   return null;
 };
 
-const esTareaDeLote = (nombre) => {
+export const esTareaDeLote = (nombre) => {
   const n = sinAcentos(nombre);
   return TAREAS_POR_LOTE.some((t) => n.includes(t));
+};
+
+/**
+ * Los lotes de un parte, cada uno con su estado y lo que le tocó del reparto.
+ * Un parte de varios lotes (07/10/2026) los trae en `lotes`; uno común tiene
+ * su único lote en `lote`, y lo repartido es su `cantidad`.
+ */
+export const lotesDelParte = (p) => {
+  if (Array.isArray(p?.lotes) && p.lotes.length) return p.lotes;
+  if (!comparable(p?.lote)) return [];
+  return [{ lote: p.lote, terminado: Boolean(p.terminado), cantidad: p.repartido ? p.cantidad : null }];
+};
+
+const esDeVariosLotes = (p) => Array.isArray(p?.lotes) && p.lotes.length > 0;
+
+// Escribe lo que le tocó a un lote de un parte de varios lotes y rehace la
+// cantidad del parte, que es la suma de lo repartido en todos. Va en una sola
+// escritura (pipeline) para que dos lotes del mismo parte no se pisen.
+const LOTES_CON_CANTIDAD = {
+  $filter: { input: "$lotes", cond: { $ne: [{ $ifNull: ["$$this.cantidad", null] }, null] } },
+};
+const escribirEnLote = (id, indice, cantidad) => ({
+  updateOne: {
+    filter: { _id: id },
+    update: [
+      {
+        $set: {
+          lotes: {
+            $map: {
+              input: { $range: [0, { $size: "$lotes" }] },
+              as: "i",
+              in: {
+                $cond: [
+                  { $eq: ["$$i", indice] },
+                  { $mergeObjects: [{ $arrayElemAt: ["$lotes", "$$i"] }, { cantidad }] },
+                  { $arrayElemAt: ["$lotes", "$$i"] },
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $set: {
+          repartido: { $gt: [{ $size: LOTES_CON_CANTIDAD }, 0] },
+          cantidad: {
+            $cond: [
+              { $gt: [{ $size: LOTES_CON_CANTIDAD }, 0] },
+              { $round: [{ $sum: "$lotes.cantidad" }, 2] },
+              null,
+            ],
+          },
+        },
+      },
+    ],
+  },
+});
+
+// Las escrituras del reparto: las de partes de un lote van por Mongoose y las
+// de partes de varios lotes por el driver, porque Mongoose no deja mandar un
+// pipeline sin más.
+const escribir = async (ops) => {
+  const comunes = ops.filter((o) => !o.varios);
+  const varios = ops.filter((o) => o.varios).map((o) => o.varios);
+  if (comunes.length) await ParteDiario.bulkWrite(comunes);
+  if (varios.length) await ParteDiario.collection.bulkWrite(varios);
 };
 
 // Reparte la medida entre las jornadas, en proporción a las horas. Sin horas
 // cargadas en ninguna se reparte en partes iguales: es lo único razonable y
 // evita que un lote terminado no pague nada. El sobrante del redondeo se le
 // suma a la última para que el total dé exacto.
-const repartir = (medida, jornadas) => {
+//
+// Las plantas van enteras (07/10/2026, pedido del usuario): no hay media
+// planta. Ahí cada jornada se lleva la parte entera de lo suyo y las plantas
+// que sobran van de a una a las que tenían la fracción más grande, así el total
+// da justo y nadie gana o pierde más de una planta por el redondeo.
+const repartir = (medida, jornadas, { enteros = false } = {}) => {
   const horas = jornadas.map((p) => Number(p.totalHoras) || 0);
   const total = horas.reduce((a, b) => a + b, 0);
   const pesos = total > 0 ? horas.map((h) => h / total) : jornadas.map(() => 1 / jornadas.length);
+  if (enteros) {
+    const exactos = pesos.map((p) => medida * p);
+    const valores = exactos.map(Math.floor);
+    let sobran = Math.round(medida) - valores.reduce((a, b) => a + b, 0);
+    const porFraccion = exactos
+      .map((x, i) => ({ i, fraccion: x - Math.floor(x) }))
+      .sort((a, b) => b.fraccion - a.fraccion || a.i - b.i);
+    for (const { i } of porFraccion) {
+      if (sobran <= 0) break;
+      valores[i] += 1;
+      sobran -= 1;
+    }
+    return valores;
+  }
   const valores = pesos.map((p) => Math.round(medida * p * 100) / 100);
   const sobra = Math.round((medida - valores.reduce((a, b) => a + b, 0)) * 100) / 100;
   if (valores.length) {
@@ -136,20 +222,60 @@ const buscarPeriodo = (periodos, fecha) => {
 // renglones de pago que armó el reparto (`pagoDe`), que no son jornadas. El
 // lote se guarda como texto en el parte (los partes viejos no tienen padrón),
 // así que se filtra en memoria por nombre comparable.
+//
+// Un parte de varios lotes entra con lo de este lote: su estado, lo que le
+// tocó (`cantidadDelLote`), en qué lugar de `lotes` está (`indice`) y los
+// otros lotes del día (`delDia`), que sirven para dividir sus horas.
 const partesDelLote = async ({ establecimiento, tarea, lote }) => {
   const partes = await ParteDiario.find({ establecimiento, tarea })
     .select(
-      "fecha createdAt persona cliente totalHoras lote terminado cantidad repartido " +
+      "fecha createdAt persona cliente totalHoras lote lotes terminado cantidad repartido " +
         "periodo motivoFueraDeCierre pagoDe"
     )
     .sort({ fecha: 1, createdAt: 1 })
     .lean();
   const buscado = comparable(lote);
-  const delLote = partes.filter((p) => comparable(p.lote) === buscado);
+  const delLote = [];
+  for (const p of partes) {
+    if (!esDeVariosLotes(p)) {
+      if (comparable(p.lote) === buscado) delLote.push(p);
+      continue;
+    }
+    const indice = p.lotes.findIndex((l) => comparable(l.lote) === buscado);
+    if (indice < 0) continue;
+    const delDia = p.lotes;
+    delLote.push({
+      ...p,
+      varios: true,
+      indice,
+      delDia,
+      terminado: Boolean(delDia[indice].terminado),
+      cantidadDelLote: delDia[indice].cantidad ?? null,
+    });
+  }
   return {
     lista: delLote.filter((p) => !p.pagoDe),
     pagos: delLote.filter((p) => p.pagoDe),
   };
+};
+
+/**
+ * La parte de las horas del día que le toca al lote en un parte de varios
+ * lotes (07/10/2026): según la medida de cada lote —plantas o hectáreas, la
+ * unidad de la tarea—, así un lote del doble de plantas se lleva el doble de
+ * horas. Si a alguno le falta la medida, en partes iguales. En un parte de un
+ * solo lote es 1.
+ */
+const fraccionDelLote = (p, unidad, padron) => {
+  if (!p.varios) return 1;
+  const medidas = p.delDia.map((l) => {
+    const delPadron = padron.find((x) => comparable(x.nombre) === comparable(l.lote));
+    const m = delPadron ? Number(medidaDelLote(unidad, delPadron)) : NaN;
+    return Number.isFinite(m) && m > 0 ? m : null;
+  });
+  if (medidas.some((m) => m === null)) return 1 / p.delDia.length;
+  const total = medidas.reduce((a, b) => a + b, 0);
+  return medidas[p.indice] / total;
 };
 
 // "DD/MM/AAAA", para la observación del renglón de pago.
@@ -192,22 +318,27 @@ const grupoDe = (lista, diaDelParte) => {
 };
 
 // Borra el reparto de las jornadas que lo tengan: la cantidad vuelve a estar
-// vacía y el parte vuelve al mes en el que cae su fecha.
+// vacía y el parte vuelve al mes en el que cae su fecha. En un parte de varios
+// lotes se borra solo lo de este lote.
 const limpiar = (jornadas) =>
   jornadas
-    .filter((p) => p.repartido)
-    .map((p) => ({
-      updateOne: {
-        filter: { _id: p._id },
-        update: {
-          cantidad: null,
-          repartido: false,
-          ...(p.motivoFueraDeCierre === MOTIVO_REPARTO
-            ? { periodo: null, motivoFueraDeCierre: "" }
-            : {}),
-        },
-      },
-    }));
+    .filter((p) => (p.varios ? p.cantidadDelLote !== null : p.repartido))
+    .map((p) =>
+      p.varios
+        ? { varios: escribirEnLote(p._id, p.indice, null) }
+        : {
+            updateOne: {
+              filter: { _id: p._id },
+              update: {
+                cantidad: null,
+                repartido: false,
+                ...(p.motivoFueraDeCierre === MOTIVO_REPARTO
+                  ? { periodo: null, motivoFueraDeCierre: "" }
+                  : {}),
+              },
+            },
+          }
+    );
 
 // Los renglones de pago de un grupo: los de sus jornadas y los del día del
 // cierre. Los segundos cubren el que quedó huérfano porque su jornada se borró
@@ -223,7 +354,7 @@ const borrarPagos = (pagos) =>
 
 const limpiarGrupo = async (jornadas, pagos, resto = {}) => {
   const ops = [...limpiar(jornadas), ...borrarPagos(pagos)];
-  if (ops.length) await ParteDiario.bulkWrite(ops);
+  if (ops.length) await escribir(ops);
   return { estado: ops.length ? "limpiado" : "nada", ...resto };
 };
 
@@ -308,7 +439,17 @@ export const recalcularLote = async ({
   // para sacar la parte de cada uno. Pero esa jornada se queda en su mes, con
   // sus horas y sin cantidad, y lo que le toca se paga con un renglón de pago
   // (`pagoDe`) sin horas, fechado el día del cierre.
-  const valores = repartir(Number(medida), jornadas);
+  //
+  // En un parte de varios lotes cuenta solo la parte de sus horas que le toca
+  // a este lote (07/10/2026, ver `fraccionDelLote`). Va sin redondear: las
+  // horas redondeadas movían algunas plantas de una persona a otra. Redondeadas
+  // se muestran solo en la observación del renglón de pago.
+  const horasDelLote = (p) => (Number(p.totalHoras) || 0) * fraccionDelLote(p, padron.unidad, lotes);
+  const valores = repartir(
+    Number(medida),
+    jornadas.map((p) => ({ totalHoras: horasDelLote(p) })),
+    { enteros: sinAcentos(padron.unidad).startsWith("planta") }
+  );
   const periodoDelPago = CLAVE_PERIODO.test(cierre.periodo || "") ? cierre.periodo : null;
   const pagoPorJornada = new Map(pagos.map((p) => [String(p.pagoDe), p]));
   const usados = new Set();
@@ -316,6 +457,7 @@ export const recalcularLote = async ({
 
   const ops = jornadas.flatMap((p, i) => {
     if (mesDe(p) === mesDelPago) {
+      if (p.varios) return [{ varios: escribirEnLote(p._id, p.indice, valores[i]) }];
       const cambios = { cantidad: valores[i], repartido: true };
       // Si un reparto viejo lo había mudado de mes, vuelve al de su fecha.
       if (p.motivoFueraDeCierre === MOTIVO_REPARTO) {
@@ -337,14 +479,16 @@ export const recalcularLote = async ({
       motivoFueraDeCierre: periodoDelPago ? MOTIVO_REPARTO : "",
       observacion:
         `${MOTIVO_REPARTO}: jornada del ${fechaCorta(p.fecha)} ` +
-        `(${Number(p.totalHoras) || 0} hs)`,
+        `(${Math.round(horasDelLote(p) * 100) / 100} hs)`,
     };
+    // El renglón va con el lote solo, también si la jornada fue de varios.
+    const loteDelPago = p.varios ? p.delDia[p.indice].lote : p.lote;
     const existente = pagoPorJornada.get(String(p._id));
     const pago = existente
       ? { updateOne: { filter: { _id: existente._id }, update: datosDelPago } }
       : {
           insertOne: {
-            document: { establecimiento, tarea, lote: p.lote, totalHoras: 0, pagoDe: p._id, ...datosDelPago },
+            document: { establecimiento, tarea, lote: loteDelPago, totalHoras: 0, pagoDe: p._id, ...datosDelPago },
           },
         };
     if (existente) usados.add(String(existente._id));
@@ -352,7 +496,7 @@ export const recalcularLote = async ({
   });
   // Los renglones de pago que ya no le corresponden a ninguna jornada.
   ops.push(...borrarPagos(pagos.filter((p) => !usados.has(String(p._id)))));
-  await ParteDiario.bulkWrite(ops);
+  await escribir(ops);
 
   return {
     estado: "repartido",
@@ -378,6 +522,27 @@ export const referenciaDeLote = (parte, { tareaDelPadron = null } = {}) => ({
   tareaDelPadron,
 });
 
+// Una referencia por cada lote del parte: el de varios lotes tiene que rehacer
+// el grupo de cada uno (07/10/2026). Sin lote, ninguna.
+export const referenciasDeLotes = (parte, opciones = {}) =>
+  lotesDelParte(parte).map((l) => ({ ...referenciaDeLote(parte, opciones), lote: l.lote }));
+
+/**
+ * Rehace el reparto de varios grupos, de a uno: son pocos y así dos lotes del
+ * mismo parte no se leen a la vez. Devuelve lo que la pantalla tiene que
+ * contar: un aviso si hubo, si no un reparto hecho, si no uno deshecho.
+ */
+export const recalcularLotes = async (referencias, recalcular = recalcularLote) => {
+  const resultados = [];
+  for (const r of referencias) resultados.push(await recalcular(r));
+  return (
+    resultados.find((r) => r.aviso) ||
+    resultados.find((r) => r.estado === "repartido") ||
+    resultados.find((r) => r.estado === "limpiado") ||
+    { estado: "nada" }
+  );
+};
+
 /**
  * El último día en que se dio por terminado cada lote con cada tarea. La
  * planilla lo usa para avisar cuando alguien carga trabajo en un lote que ya
@@ -387,20 +552,24 @@ export const referenciaDeLote = (parte, { tareaDelPadron = null } = {}) => ({
 export const cierresDeLotes = async (establecimiento) => {
   if (establecimiento !== "san-pablo") return [];
   const terminados = await ParteDiario.find({ establecimiento, terminado: true })
-    .select("fecha lote tarea")
+    .select("fecha lote lotes terminado tarea")
     .sort({ fecha: 1 })
     .lean();
 
   // Uno por lote y tarea, con la fecha más nueva: es la que importa para
   // avisar. El lote se compara normalizado, pero se devuelve como se escribió.
+  // En un parte de varios lotes cuentan solo los que se terminaron.
   const porGrupo = new Map();
   for (const p of terminados) {
-    if (!comparable(p.lote) || !p.tarea) continue;
-    porGrupo.set(`${comparable(p.lote)}|${p.tarea}`, {
-      lote: p.lote,
-      tarea: String(p.tarea),
-      fecha: dia(p.fecha),
-    });
+    if (!p.tarea) continue;
+    for (const l of lotesDelParte(p)) {
+      if (!l.terminado || !comparable(l.lote)) continue;
+      porGrupo.set(`${comparable(l.lote)}|${p.tarea}`, {
+        lote: l.lote,
+        tarea: String(p.tarea),
+        fecha: dia(p.fecha),
+      });
+    }
   }
   return [...porGrupo.values()];
 };
