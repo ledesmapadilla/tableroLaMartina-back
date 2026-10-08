@@ -75,6 +75,9 @@ const IngresoSanPabloSchema = new Schema(
     // El frente de trabajo (02/10/2026): de dónde viene el carro, o adónde
     // van las escaleras de un retiro. Las de un carro copian el de su carro.
     frente: { type: Schema.Types.ObjectId, ref: "FrenteSanPablo", default: null },
+    // El encargado (08/10/2026): uno de ENCARGADOS_ESCALERAS, en el ingreso y
+    // el retiro de escaleras.
+    encargado: { type: String, trim: true, default: "" },
     observaciones: { type: String, trim: true, default: "" },
   },
   { timestamps: true }

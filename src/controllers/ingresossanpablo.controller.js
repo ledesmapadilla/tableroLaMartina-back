@@ -22,6 +22,7 @@ const datosDe = (body) => {
   if ("fechaIngreso" in body) datos.fechaIngreso = body.fechaIngreso || null;
   if ("fechaEgreso" in body) datos.fechaEgreso = body.fechaEgreso || null;
   if ("ingresadoPor" in body) datos.ingresadoPor = limpiar(body.ingresadoPor);
+  if ("encargado" in body) datos.encargado = limpiar(body.encargado);
   if ("revisada" in body) datos.revisada = Boolean(body.revisada);
   if ("planMantenimiento" in body) datos.planMantenimiento = Boolean(body.planMantenimiento);
   if ("cantidadEscaleras" in body) datos.cantidadEscaleras = numero(body.cantidadEscaleras);
@@ -95,7 +96,19 @@ const DE_NUEVAS = ["fechaIngreso", "ingresadoPor", "cantidadEscaleras", "observa
 // vienen o ninguno, que en pantalla es "S/N" (06/10/2026). Desde que se borró
 // la página de Carros porta escaleras, es también el ingreso del carro, y
 // lleva las sanas, rotas y reparadas que antes iban en la fila del carro.
-const DE_RETIRO = [...DE_NUEVAS, "frente", "cc"];
+const DE_RETIRO = [...DE_NUEVAS, "frente", "cc", "encargado"];
+
+// Los encargados del ingreso y el retiro de escaleras (08/10/2026): la misma
+// lista que el select de la pantalla.
+const ENCARGADOS_ESCALERAS = [
+  "Germán Diaz",
+  "Luis Paredes",
+  "Daniel Perea",
+  "Carlos Chumiento",
+  "Nicolás Galvan",
+];
+const avisoEncargado = { error: "Elegí el encargado" };
+const encargadoInvalido = (encargado) => !ENCARGADOS_ESCALERAS.includes(encargado);
 const DE_SIN_CARRO = [...DE_RETIRO, "escalerasSanas", "escalerasRotas", "escalerasReparadas"];
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
@@ -208,6 +221,7 @@ export const create = async (req, res) => {
       // El retiro dice siempre a qué frente van.
       if (!datos.frente) return res.status(400).json({ error: "Elegí el frente del retiro" });
       if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
+      if (encargadoInvalido(datos.encargado)) return res.status(400).json(avisoEncargado);
       const retirado = await carroYaRetirado(cosecha, datos.cc);
       if (retirado) return res.status(400).json({ error: retirado });
       const aviso = await controlarSalida(cosecha, datos.cantidadEscaleras, "retirar");
@@ -226,6 +240,7 @@ export const create = async (req, res) => {
       const datos = soloCampos(datosDe(req.body), DE_SIN_CARRO);
       if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras entran" });
       if (await frenteInexistente(datos.frente)) return res.status(400).json(avisoFrente);
+      if (encargadoInvalido(datos.encargado)) return res.status(400).json(avisoEncargado);
       if (await ccInexistente(datos.cc)) return res.status(400).json({ error: "El carro no existe" });
       const entro = await carroYaEntro(cosecha, datos.cc);
       if (entro) return res.status(400).json({ error: entro });
@@ -293,6 +308,7 @@ export const update = async (req, res) => {
       }
       if ("cc" in datos && !datos.cc) return res.status(400).json({ error: "Elegí el carro porta escaleras del retiro" });
       if ("frente" in datos && !datos.frente) return res.status(400).json({ error: "Elegí el frente del retiro" });
+      if ("encargado" in datos && encargadoInvalido(datos.encargado)) return res.status(400).json(avisoEncargado);
       if ("cc" in datos) {
         const retirado = await carroYaRetirado(actual.cosecha, datos.cc, actual._id);
         if (retirado) return res.status(400).json({ error: retirado });
@@ -305,6 +321,7 @@ export const update = async (req, res) => {
         });
       }
       if (actual.sinCarro) {
+        if ("encargado" in datos && encargadoInvalido(datos.encargado)) return res.status(400).json(avisoEncargado);
         const entro = await carroYaEntro(actual.cosecha, "cc" in datos ? datos.cc : actual.cc, actual._id);
         if (entro) return res.status(400).json({ error: entro });
         const cantidades = controlarCantidades({ ...actual.toObject(), ...datos });
