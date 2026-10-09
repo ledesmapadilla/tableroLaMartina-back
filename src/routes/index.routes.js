@@ -192,7 +192,7 @@ router.use("/op", escribirSi(["compras.comprador"]), opRouter);
 // Manitous › General y el analista cotiza.
 router.use(
   "/presupuestos-reparaciones",
-  escribirSi({ POST: ["sanpablo.ingresos"], PUT: ["compras.analista"] }),
+  escribirSi({ POST: ["sanpablo.ingresos"], PUT: ["compras.analista"], DELETE: ["compras.analista"] }),
   presupuestosReparacionRouter
 );
 

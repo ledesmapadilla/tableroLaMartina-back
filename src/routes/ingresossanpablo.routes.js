@@ -20,6 +20,7 @@ import {
   agregarProblema,
   actualizarProblema,
   borrarProblema,
+  getGastoReal,
 } from "../controllers/chequeossanpablo.controller.js";
 
 const router = Router();
@@ -31,6 +32,7 @@ router.get("/responsables", getResponsables);
 router.put("/responsables", saveResponsables);
 // Las tablas de los sistemas de Manitous › General y el pedido de repuestos.
 router.get("/chequeos", getChequeos);
+router.get("/chequeos/real", getGastoReal);
 router.post("/chequeos", createChequeo);
 router.put("/chequeos/:id", updateChequeo);
 router.delete("/chequeos/:id", removeChequeo);

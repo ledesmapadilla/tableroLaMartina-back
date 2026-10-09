@@ -2,6 +2,7 @@ import IngresoSanPablo from "../models/IngresoSanPablo.js";
 import CentroCosto from "../models/CentroCosto.js";
 import FrenteSanPablo from "../models/FrenteSanPablo.js";
 import ResponsablesSanPablo from "../models/ResponsablesSanPablo.js";
+import { SECCIONES_MANITOU } from "../catalogos/manitous.js";
 
 const POPULATE = [
   { path: "cc", select: "cc equipo descripcion" },
@@ -419,11 +420,11 @@ export const createFrente = async (req, res) => {
 };
 
 // ── Responsables ──
-// Los de una pantalla (`seccion`, por ahora "manitous-general") en una
+// Los de una pantalla (`seccion`: Manitous › General o una Manitou) en una
 // cosecha. Se guarda la lista entera de una vez: así se agregan, se quitan y
 // quedan en el orden de la pantalla.
 
-const SECCIONES = ["manitous-general"];
+const SECCIONES = SECCIONES_MANITOU;
 
 const claveDe = (fuente) => {
   const cosecha = Number(fuente.cosecha);

@@ -1,5 +1,7 @@
 import PresupuestoReparacion from "../models/PresupuestoReparacion.js";
 import ChequeoSanPablo from "../models/ChequeoSanPablo.js";
+import { SECCION_GENERAL } from "../catalogos/manitous.js";
+import { borrarArchivo, estaConfigurado } from "../services/cloudinary.service.js";
 
 // Presupuestos reparaciones (08/10/2026): los repuestos que el taller manda a
 // cotizar desde Manitous › General. El analista los cotiza y quedan en
@@ -18,7 +20,14 @@ export const getAll = async (req, res) => {
   try {
     const filtro = req.query.chequeo ? { chequeo: req.query.chequeo } : {};
     const lista = await PresupuestoReparacion.find(filtro).sort({ nro: -1 }).lean();
-    res.json(lista);
+    // `cantActual` (09/10/2026): la cantidad que tiene hoy el repuesto en su
+    // fila, que pudo cambiar después de mandarlo; null si ya no está. La usa
+    // el presupuesto de las Manitous.
+    const filas = await ChequeoSanPablo.find({ _id: { $in: [...new Set(lista.map((p) => String(p.chequeo)))] } })
+      .select("repuestos._id repuestos.cant")
+      .lean();
+    const cantidades = new Map(filas.flatMap((f) => f.repuestos.map((r) => [String(r._id), r.cant])));
+    res.json(lista.map((p) => ({ ...p, cantActual: cantidades.get(String(p.repuesto)) ?? null })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -41,6 +50,10 @@ export const crear = async (req, res) => {
     const fila = await ChequeoSanPablo.findById(req.body.chequeo);
     const repuesto = fila?.repuestos.id(req.body.repuesto);
     if (!repuesto) return res.status(404).json({ error: "Repuesto no encontrado" });
+    // General es la plantilla (09/10/2026): se cotiza en cada Manitou.
+    if (fila.seccion === SECCION_GENERAL) {
+      return res.status(400).json({ error: "General es la plantilla: se cotiza en cada Manitou" });
+    }
     const ya = await PresupuestoReparacion.findOne({ repuesto: repuesto._id }).lean();
     if (ya) return res.status(400).json({ error: `Ese repuesto ya se mandó a cotizar (${ya.estado})` });
 
@@ -115,5 +128,21 @@ export const actualizar = async (req, res) => {
     res.json(p);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+// DELETE (09/10/2026): lo borra el analista. El repuesto sigue en su fila y
+// en la Manitou vuelve a "Pedir cotización": se puede mandar de nuevo. El
+// adjunto, si tiene, se borra también de Cloudinary.
+export const borrar = async (req, res) => {
+  try {
+    const p = await PresupuestoReparacion.findByIdAndDelete(req.params.id);
+    if (!p) return res.status(404).json({ error: "Presupuesto no encontrado" });
+    if (p.archivo?.publicId && estaConfigurado()) {
+      await borrarArchivo(p.archivo.publicId, p.archivo.tipo || "image").catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
