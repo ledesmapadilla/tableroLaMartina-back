@@ -17,6 +17,9 @@ import {
   agregarRepuesto,
   actualizarRepuesto,
   borrarRepuesto,
+  agregarProblema,
+  actualizarProblema,
+  borrarProblema,
 } from "../controllers/chequeossanpablo.controller.js";
 
 const router = Router();
@@ -34,6 +37,9 @@ router.delete("/chequeos/:id", removeChequeo);
 router.post("/chequeos/:id/repuestos", agregarRepuesto);
 router.put("/chequeos/:id/repuestos/:repuestoId", actualizarRepuesto);
 router.delete("/chequeos/:id/repuestos/:repuestoId", borrarRepuesto);
+router.post("/chequeos/:id/problemas", agregarProblema);
+router.put("/chequeos/:id/problemas/:problemaId", actualizarProblema);
+router.delete("/chequeos/:id/problemas/:problemaId", borrarProblema);
 
 router.get("/", getAll);
 router.post("/", create);

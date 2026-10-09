@@ -34,12 +34,43 @@ const claveDe = (fuente) => {
   return { cosecha, seccion, sistema };
 };
 
+// ── Problemas ──
+// Una fila tiene una lista de problemas, cada uno con su círculo de resuelto
+// (08/10/2026). Con problemas, el OK no se marca a mano: es OK cuando están
+// todos resueltos. Sin problemas, el OK se marca como siempre.
+//
+// Las filas de antes tenían un problema solo (`problema` + la x en `tarea`):
+// se leen como un problema de la lista, resuelto si la x estaba sacada.
+const problemasDe = (fila) => {
+  if (fila.problemas?.length || !fila.problema) return fila.problemas || [];
+  return [{ _id: "0", texto: fila.problema, resuelto: fila.tarea !== "x" }];
+};
+
+// Pasa una fila vieja al formato nuevo, antes de tocarle los problemas.
+const pasarANuevo = (fila) => {
+  if (!fila.problemas.length && fila.problema) {
+    fila.problemas.push({ texto: fila.problema, resuelto: fila.tarea !== "x" });
+  }
+  fila.problema = "";
+  fila.tarea = null;
+};
+
+// Con problemas, el OK sale de ellos.
+const sincronizarOk = (fila) => {
+  if (fila.problemas.length) fila.chequeado = fila.problemas.every((p) => p.resuelto);
+};
+
+const conProblemas = (fila) => {
+  const o = typeof fila.toObject === "function" ? fila.toObject() : fila;
+  return { ...o, problemas: problemasDe(o) };
+};
+
 export const getChequeos = async (req, res) => {
   try {
     const clave = claveDe(req.query);
     if (clave.error) return res.status(400).json(clave);
     const filas = await ChequeoSanPablo.find(clave).sort({ createdAt: 1 }).lean();
-    res.json(filas);
+    res.json(filas.map(conProblemas));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -52,14 +83,15 @@ export const createChequeo = async (req, res) => {
     const item = limpiar(req.body.item);
     if (!item) return res.status(400).json({ error: "Poné el ítem" });
     const fila = await ChequeoSanPablo.create({ ...clave, item });
-    res.status(201).json(fila);
+    res.status(201).json(conProblemas(fila));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
 
-// El ítem, el chequeado y la tarea. Una x necesita el problema escrito; un ok
-// lo borra.
+// El ítem, el chequeado y la tarea. Una x necesita el problema escrito.
+// Sacar la x no borra lo escrito (queda para cuando se la vuelva a marcar);
+// el texto se borra solo mandando `problema` vacío.
 export const updateChequeo = async (req, res) => {
   try {
     const fila = await ChequeoSanPablo.findById(req.params.id);
@@ -70,19 +102,81 @@ export const updateChequeo = async (req, res) => {
       if (!item) return res.status(400).json({ error: "Poné el ítem" });
       fila.item = item;
     }
-    if ("chequeado" in body) fila.chequeado = Boolean(body.chequeado);
+    // Con problemas el OK no se toca a mano: sale de los resueltos.
+    if ("chequeado" in body && problemasDe(fila).length === 0) fila.chequeado = Boolean(body.chequeado);
     if ("problema" in body) fila.problema = limpiar(body.problema);
     if ("tarea" in body) {
       const tarea = body.tarea || null;
       if (![null, "ok", "x"].includes(tarea)) return res.status(400).json({ error: "Tarea inválida" });
       fila.tarea = tarea;
-      if (tarea !== "x") fila.problema = "";
+    }
+    // OK y Con problema se excluyen (08/10/2026): lo que se acaba de marcar
+    // desmarca al otro. El problema escrito no se borra.
+    if (fila.chequeado && fila.tarea === "x") {
+      if (body.tarea === "x") fila.chequeado = false;
+      else fila.tarea = null;
     }
     if (fila.tarea === "x" && !fila.problema) {
       return res.status(400).json({ error: "Escribí el problema" });
     }
     await fila.save();
-    res.json(fila);
+    res.json(conProblemas(fila));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// POST { texto }: un problema nuevo, sin resolver; la fila deja de estar OK.
+export const agregarProblema = async (req, res) => {
+  try {
+    const fila = await ChequeoSanPablo.findById(req.params.id);
+    if (!fila) return res.status(404).json({ error: "Fila no encontrada" });
+    const texto = limpiar(req.body.texto);
+    if (!texto) return res.status(400).json({ error: "Escribí el problema" });
+    pasarANuevo(fila);
+    fila.problemas.push({ texto });
+    sincronizarOk(fila);
+    await fila.save();
+    res.status(201).json(conProblemas(fila));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// PUT { texto?, resuelto? }: lo corrige o lo marca resuelto (o no).
+export const actualizarProblema = async (req, res) => {
+  try {
+    const fila = await ChequeoSanPablo.findById(req.params.id);
+    if (!fila) return res.status(404).json({ error: "Fila no encontrada" });
+    pasarANuevo(fila);
+    // Una fila vieja recién pasada no tenía id: se la busca por posición.
+    const problema = fila.problemas.id(req.params.problemaId) || (req.params.problemaId === "0" ? fila.problemas[0] : null);
+    if (!problema) return res.status(404).json({ error: "Problema no encontrado" });
+    if ("texto" in req.body) {
+      const texto = limpiar(req.body.texto);
+      if (!texto) return res.status(400).json({ error: "Escribí el problema" });
+      problema.texto = texto;
+    }
+    if ("resuelto" in req.body) problema.resuelto = Boolean(req.body.resuelto);
+    sincronizarOk(fila);
+    await fila.save();
+    res.json(conProblemas(fila));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const borrarProblema = async (req, res) => {
+  try {
+    const fila = await ChequeoSanPablo.findById(req.params.id);
+    if (!fila) return res.status(404).json({ error: "Fila no encontrada" });
+    pasarANuevo(fila);
+    const problema = fila.problemas.id(req.params.problemaId) || (req.params.problemaId === "0" ? fila.problemas[0] : null);
+    if (!problema) return res.status(404).json({ error: "Problema no encontrado" });
+    problema.deleteOne();
+    sincronizarOk(fila);
+    await fila.save();
+    res.json(conProblemas(fila));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -19,6 +19,17 @@ const RepuestoSchema = new Schema(
   { _id: true }
 );
 
+// Un problema de una fila (08/10/2026): una fila puede tener varios, y cada
+// uno se marca resuelto con su círculo.
+const ProblemaSchema = new Schema(
+  {
+    texto: { type: String, trim: true, required: true },
+    resuelto: { type: Boolean, default: false },
+    fecha: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 // Una fila de la tabla de un sistema (Motor, Torre…) de Manitous › General en
 // una cosecha (06/10/2026): el ítem, si se chequeó, cómo dio la tarea (ok o
 // x, con el problema escrito) y los repuestos pedidos.
@@ -30,7 +41,10 @@ const ChequeoSanPabloSchema = new Schema(
     item: { type: String, trim: true, required: true },
     chequeado: { type: Boolean, default: false },
     tarea: { type: String, enum: ["ok", "x", null], default: null },
+    // El problema de antes, uno solo con la x (tarea). Las filas viejas se
+    // pasan a `problemas` la primera vez que se tocan.
     problema: { type: String, trim: true, default: "" },
+    problemas: { type: [ProblemaSchema], default: [] },
     repuestos: { type: [RepuestoSchema], default: [] },
   },
   { timestamps: true }

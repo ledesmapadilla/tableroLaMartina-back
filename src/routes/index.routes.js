@@ -32,6 +32,7 @@ import descuentosRouter from "./descuentos.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
 import ingresosSanPabloRouter from "./ingresossanpablo.routes.js";
+import presupuestosReparacionRouter from "./presupuestosReparacion.routes.js";
 import stockRouter from "./stock.routes.js";
 
 // Compras. Se unifico con el Tablero el 06/09/2026: comparten base, padron de
@@ -187,6 +188,13 @@ const PEDIDOS = {
 router.use("/berdina/pedidos", escribirSi(PEDIDOS), berdinaPedidosRouter);
 router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
+// Presupuestos reparaciones (08/10/2026): el taller manda a cotizar desde
+// Manitous › General y el analista cotiza.
+router.use(
+  "/presupuestos-reparaciones",
+  escribirSi({ POST: ["sanpablo.ingresos"], PUT: ["compras.analista"] }),
+  presupuestosReparacionRouter
+);
 
 // Los adjuntos de Compras: la firma para subir a Cloudinary y el borrado.
 router.use("/archivos", archivosRouter);
