@@ -48,6 +48,10 @@ const ChequeoSanPabloSchema = new Schema(
     // Una breve descripción del ítem (09/10/2026): se carga en General y se
     // copia a las Manitou, como el ítem.
     descripcion: { type: String, trim: true, default: "" },
+    // En una Manitou, la tarea que no corresponde a esa unidad (10/10/2026,
+    // el turbo de la 1101 y la 1102): se ve "NO APLICA" y no se chequea. No
+    // sale de General, así que la réplica no la toca.
+    no_aplica: { type: Boolean, default: false },
     chequeado: { type: Boolean, default: false },
     tarea: { type: String, enum: ["ok", "x", null], default: null },
     // El problema de antes, uno solo con la x (tarea). Las filas viejas se

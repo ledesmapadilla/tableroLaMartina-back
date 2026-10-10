@@ -194,6 +194,9 @@ export const updateChequeo = async (req, res) => {
       return res.status(400).json({ error: SOLO_UNIDAD });
     }
     if (!general && ("item" in body || "descripcion" in body)) return res.status(400).json({ error: SOLO_GENERAL });
+    if (fila.no_aplica && ["chequeado", "problema", "tarea"].some((c) => c in body)) {
+      return res.status(400).json({ error: "Esta tarea no aplica a esta Manitou" });
+    }
     if ("descripcion" in body) fila.descripcion = limpiar(body.descripcion);
     if ("item" in body) {
       const item = limpiar(body.item);
