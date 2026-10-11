@@ -2,6 +2,8 @@ import ChequeoSanPablo from "../models/ChequeoSanPablo.js";
 import SanPabloPedido from "../models/SanPabloPedido.js";
 import PresupuestoReparacion from "../models/PresupuestoReparacion.js";
 import OC from "../models/OC.js";
+import EstadoIngresoManitou from "../models/EstadoIngresoManitou.js";
+import EstadoManitou, { ESTADOS_MANITOU } from "../models/EstadoManitou.js";
 import {
   SECCIONES_MANITOU,
   SECCION_GENERAL,
@@ -26,7 +28,6 @@ const SISTEMAS = [
   "sistema-hidraulico",
   "sistema-electrico",
   "cabina",
-  "otros",
 ];
 const URGENCIAS = ["Baja", "Media", "Alta", "Crítica"];
 
@@ -190,14 +191,28 @@ export const updateChequeo = async (req, res) => {
     const body = req.body;
     // En General solo el ítem y su descripción; en una Manitou todo menos eso.
     const general = esGeneral(fila);
-    if (general && ["chequeado", "problema", "tarea"].some((c) => c in body)) {
+    if (general && ["chequeado", "problema", "tarea", "reparaciones", "no_aplica"].some((c) => c in body)) {
       return res.status(400).json({ error: SOLO_UNIDAD });
     }
     if (!general && ("item" in body || "descripcion" in body)) return res.status(400).json({ error: SOLO_GENERAL });
-    if (fila.no_aplica && ["chequeado", "problema", "tarea"].some((c) => c in body)) {
+    // No aplica se marca y se desmarca desde la Manitou (10/10/2026).
+    if ("no_aplica" in body) fila.no_aplica = Boolean(body.no_aplica);
+    if (fila.no_aplica && ["chequeado", "problema", "tarea", "reparaciones"].some((c) => c in body)) {
       return res.status(400).json({ error: "Esta tarea no aplica a esta Manitou" });
     }
     if ("descripcion" in body) fila.descripcion = limpiar(body.descripcion);
+    // Las reparaciones van como lista entera, sin las que no tienen problema.
+    if ("reparaciones" in body) {
+      if (!Array.isArray(body.reparaciones)) return res.status(400).json({ error: "Reparaciones inválidas" });
+      fila.reparaciones = body.reparaciones
+        .map((r) => ({
+          ...(r._id ? { _id: r._id } : {}),
+          problema: limpiar(r.problema),
+          detalle: limpiar(r.detalle),
+          realizado: Boolean(r.realizado),
+        }))
+        .filter((r) => r.problema);
+    }
     if ("item" in body) {
       const item = limpiar(body.item);
       if (!item) return res.status(400).json({ error: "Poné el ítem" });
@@ -485,5 +500,83 @@ export const getGastoReal = async (req, res) => {
     );
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Estado de ingreso (10/10/2026) ──
+// Por sistema de cada Manitou: las tareas con los problemas con que llegó,
+// cada una con su círculo de solucionado. General no tiene: es la plantilla.
+const claveEstado = (fuente, conSistema) => {
+  const cosecha = Number(fuente.cosecha);
+  const seccion = limpiar(fuente.seccion);
+  if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
+  if (!unidadDeSeccion(seccion)) return { error: "Sección inválida" };
+  if (!conSistema) return { cosecha, seccion };
+  const sistema = limpiar(fuente.sistema);
+  if (!SISTEMAS.includes(sistema)) return { error: "Sistema inválido" };
+  return { cosecha, seccion, sistema };
+};
+
+export const getEstadosIngreso = async (req, res) => {
+  try {
+    const clave = claveEstado(req.query, false);
+    if (clave.error) return res.status(400).json(clave);
+    res.json(await EstadoIngresoManitou.find(clave).lean());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveEstadoIngreso = async (req, res) => {
+  try {
+    const clave = claveEstado(req.body, true);
+    if (clave.error) return res.status(400).json(clave);
+    // La lista entera, como los responsables: sin tareas vacías.
+    if (!Array.isArray(req.body.tareas)) return res.status(400).json({ error: "Faltan las tareas" });
+    const tareas = req.body.tareas
+      .map((t) => ({
+        ...(t._id ? { _id: t._id } : {}),
+        texto: limpiar(t.texto),
+        solucionado: Boolean(t.solucionado),
+      }))
+      .filter((t) => t.texto);
+    const doc = await EstadoIngresoManitou.findOneAndUpdate(
+      clave,
+      { $set: { tareas } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json(doc);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ── Estado de la Manitou (11/10/2026) ──
+// En reparación o en espera, por cosecha. GET ?cosecha → [{ seccion, estado }]
+// de todas las Manitou; PUT { cosecha, seccion, estado } (null lo desmarca).
+export const getEstadosManitou = async (req, res) => {
+  try {
+    const cosecha = Number(req.query.cosecha);
+    if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    res.json(await EstadoManitou.find({ cosecha }).select("seccion estado").lean());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveEstadoManitou = async (req, res) => {
+  try {
+    const clave = claveEstado(req.body, false);
+    if (clave.error) return res.status(400).json(clave);
+    const estado = req.body.estado || null;
+    if (estado && !ESTADOS_MANITOU.includes(estado)) return res.status(400).json({ error: "Estado inválido" });
+    const doc = await EstadoManitou.findOneAndUpdate(
+      clave,
+      { $set: { estado } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json(doc);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 };

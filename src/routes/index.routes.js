@@ -47,6 +47,7 @@ import archivosRouter from "./archivos.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
+import { getResultados, getResultadosDetalle } from "../controllers/resultados.controller.js";
 import { verificarToken, soloRoles } from "../middleware/auth.js";
 import { escribirSi } from "../middleware/permisos.js";
 
@@ -188,6 +189,12 @@ const PEDIDOS = {
 router.use("/berdina/pedidos", escribirSi(PEDIDOS), berdinaPedidosRouter);
 router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
+// Resultados (11/10/2026): lo gastado por taller y CC. Por ahora solo para
+// nacho; después pasa a la tabla de Roles.
+const soloNacho = (req, res, next) =>
+  req.usuario?.usuario === "nacho" ? next() : res.status(403).json({ error: "Sin permiso" });
+router.get("/compras/resultados", soloNacho, getResultados);
+router.get("/compras/resultados/detalle", soloNacho, getResultadosDetalle);
 // Presupuestos reparaciones (08/10/2026): el taller manda a cotizar desde
 // Manitous › General y el analista cotiza.
 router.use(

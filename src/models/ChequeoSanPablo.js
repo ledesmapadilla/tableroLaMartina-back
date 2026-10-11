@@ -36,6 +36,17 @@ const ProblemaSchema = new Schema(
   { _id: true }
 );
 
+// Una reparación de una fila de una Manitou (11/10/2026): el problema, el
+// detalle de lo que se hizo y si ya se realizó.
+const ReparacionSchema = new Schema(
+  {
+    problema: { type: String, trim: true, required: true },
+    detalle: { type: String, trim: true, default: "" },
+    realizado: { type: Boolean, default: false },
+  },
+  { _id: true }
+);
+
 // Una fila de la tabla de un sistema (Motor, Torre…) de Manitous › General en
 // una cosecha (06/10/2026): el ítem, si se chequeó, cómo dio la tarea (ok o
 // x, con el problema escrito) y los repuestos pedidos.
@@ -52,6 +63,10 @@ const ChequeoSanPabloSchema = new Schema(
     // el turbo de la 1101 y la 1102): se ve "NO APLICA" y no se chequea. No
     // sale de General, así que la réplica no la toca.
     no_aplica: { type: Boolean, default: false },
+    // En una Manitou, las reparaciones de la tarea (11/10/2026; antes un
+    // texto libre, `reparacion`). No salen de General, así que la réplica no
+    // las toca.
+    reparaciones: { type: [ReparacionSchema], default: [] },
     chequeado: { type: Boolean, default: false },
     tarea: { type: String, enum: ["ok", "x", null], default: null },
     // El problema de antes, uno solo con la x (tarea). Las filas viejas se
