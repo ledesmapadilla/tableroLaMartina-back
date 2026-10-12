@@ -28,6 +28,20 @@ export const escribirSi = (claves) => async (req, res, next) => {
 };
 
 /**
+ * Pide "Ver" para leer. Las lecturas en general no lo piden (ver escribirSi);
+ * esto es para lo que no lee ninguna otra pantalla y no tiene que verlo
+ * cualquiera con sesión, como Compras › Resultados.
+ */
+export const exigirVer = (claves) => async (req, res, next) => {
+  try {
+    if (await puedeRol(req.usuario?.rol, claves, "ver")) return next();
+    return res.status(403).json({ error: "Tu rol no tiene permiso para ver esto" });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+/**
  * Pide "Editar" sea cual sea el método, para una lectura que en realidad
  * habilita a escribir: hoy la firma con la que el navegador sube un adjunto a
  * Cloudinary, que es un GET pero vale tanto como una escritura.
