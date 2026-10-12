@@ -16,6 +16,8 @@ import ServiceColectivo from "../models/ServiceColectivo.js";
 import KilometroColectivo from "../models/KilometroColectivo.js";
 import { registrarAlta, registrarCambios, registrarBaja } from "./historialtractor.controller.js";
 import { esEquipo, grupoDeEquipo, flotaDeEquipo, cuentaKm } from "../catalogos/equipos.js";
+import { contarRenombre, aplicarRenombre, esCodigoFijo } from "../services/renombrarCC.service.js";
+import mongoose from "mongoose";
 
 // El padrón de CC es la única puerta de entrada (15/09/2026). Un CC cuyo
 // equipo es de Flota (ver catalogos/equipos.js) se da de alta y de baja acá, y
@@ -174,12 +176,37 @@ export const getById = async (req, res) => {
 // y lo que venga en el pedido se ignora.
 const CAMPOS_COMPRAS = ["marca", "observaciones"];
 
-// Los que describen al equipo. En un CC de Flota quedan fijos: horómetros,
-// services e historial guardan una copia del código, y la descripción se edita
-// en la ficha de Flota.
-const CAMPOS_EQUIPO = ["cc", "equipo", "descripcion"];
+// Los que describen al equipo. En un CC de Flota quedan fijos: el equipo
+// decide la pantalla y la descripción se edita en la ficha de Flota. El código
+// sí se cambia (12/10/2026), y se reescribe en todos lados
+// (services/renombrarCC.service.js).
+const CAMPOS_EQUIPO = ["equipo", "descripcion"];
 
 const limpiar = (v) => String(v ?? "").trim();
+
+// Por qué no se puede pasar del código `viejo` al `nuevo`, o null si se puede.
+const motivoSinRenombre = async (viejo, nuevo, id) => {
+  if (!nuevo) return "El código no puede quedar vacío";
+  if (esCodigoFijo(viejo) || esCodigoFijo(nuevo)) {
+    return "Los códigos de las Manitou (1100 a 1104) están fijos en el programa: no se cambian";
+  }
+  if (await yaExiste(nuevo, id)) return "Ya existe un CC con ese código";
+  return null;
+};
+
+// Antes de cambiar el código: qué y cuánto se reescribe. No guarda nada.
+export const previaRenombre = async (req, res) => {
+  try {
+    const actual = await CentroCosto.findById(req.params.id);
+    if (!actual) return res.status(404).json({ error: "CC no encontrado" });
+    const nuevo = codigoPara(req.query.cc, actual.equipo);
+    const motivo = await motivoSinRenombre(actual.cc, nuevo, actual._id);
+    if (motivo) return res.status(400).json({ error: motivo });
+    res.json({ viejo: actual.cc, nuevo, lugares: await contarRenombre(actual.cc) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 export const create = async (req, res) => {
   try {
@@ -231,9 +258,10 @@ export const update = async (req, res) => {
       );
       if (cambiaAlgo) {
         return res.status(400).json({
-          error: `El CC ${actual.cc} es de ${pantalla}: el código y el equipo no se cambian, y la descripción se edita en ${pantalla}.`,
+          error: `El CC ${actual.cc} es de ${pantalla}: el equipo no se cambia y la descripción se edita en ${pantalla}.`,
         });
       }
+      if ("cc" in req.body) cambios.cc = codigoPara(req.body.cc, actual.equipo);
       // Un CC de Flota que quedó con otro grupo se corrige al guardarlo.
       cambios.grupo = grupoDeEquipo(actual.equipo);
     } else {
@@ -245,12 +273,16 @@ export const update = async (req, res) => {
       cambios.grupo = grupoDeEquipo(equipo);
       if ("descripcion" in req.body) cambios.descripcion = limpiar(req.body.descripcion);
       if ("cc" in req.body || "equipo" in req.body) {
-        const cc = codigoPara("cc" in req.body ? req.body.cc : actual.cc, equipo);
-        if (await yaExiste(cc, req.params.id)) {
-          return res.status(400).json({ error: "Ya existe un CC con ese código" });
-        }
-        cambios.cc = cc;
+        cambios.cc = codigoPara("cc" in req.body ? req.body.cc : actual.cc, equipo);
       }
+    }
+
+    const renombra = cambios.cc !== undefined && cambios.cc !== actual.cc;
+    if (renombra) {
+      const motivo = await motivoSinRenombre(actual.cc, cambios.cc, actual._id);
+      if (motivo) return res.status(400).json({ error: motivo });
+    } else {
+      delete cambios.cc;
     }
 
     // Un CC suelto que pasa a ser un tractor también necesita su grupo.
@@ -259,10 +291,26 @@ export const update = async (req, res) => {
       return res.status(400).json(avisoGrupo);
     }
 
-    const centro = await CentroCosto.findByIdAndUpdate(req.params.id, cambios, {
-      new: true,
-      runValidators: true,
-    });
+    // Con el código nuevo se reescribe todo junto: o cambia en todos lados o
+    // en ninguno.
+    let centro;
+    if (renombra) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          centro = await CentroCosto.findByIdAndUpdate(req.params.id, cambios, {
+            new: true,
+            runValidators: true,
+            session,
+          });
+          await aplicarRenombre(actual.cc, cambios.cc, session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      centro = await CentroCosto.findByIdAndUpdate(req.params.id, cambios, { new: true, runValidators: true });
+    }
 
     // Un CC del padrón que pasa a ser de Flota (por ejemplo, un colectivo que
     // cargó Compras sin equipo) se agrega a su pantalla.
@@ -270,6 +318,7 @@ export const update = async (req, res) => {
       try {
         await crearUnidad(centro, { gruppo });
       } catch (error) {
+        if (renombra) await aplicarRenombre(cambios.cc, actual.cc);
         await CentroCosto.findByIdAndUpdate(req.params.id, {
           cc: actual.cc,
           equipo: actual.equipo,

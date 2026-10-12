@@ -6,8 +6,9 @@ import { Schema, model } from "mongoose";
 const HistorialTractorSchema = new Schema(
   {
     tractor:       { type: Schema.Types.ObjectId, ref: "Tractor", required: true },
-    // Se guarda el CC del momento del cambio: si despues se renombra el
-    // tractor, el historial sigue mostrando como se llamaba entonces.
+    // Se guarda el CC del momento del cambio. Si despues se cambia el codigo
+    // desde Altas, se reescribe aca tambien (services/renombrarCC.service.js):
+    // el historial se lee siempre con el codigo de hoy.
     cc:            { type: String, trim: true },
     accion:        { type: String, enum: ["alta", "modificacion", "baja"], default: "modificacion" },
     campo:         { type: String, trim: true, default: "" },
