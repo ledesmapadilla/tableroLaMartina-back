@@ -328,9 +328,11 @@ export const removeChequeo = async (req, res) => {
 // Manitou; ahí no se piden ni llevan C.C. En una Manitou, de un repuesto
 // copiado solo se cambia la cantidad, y el C.C. es siempre el de la unidad.
 
-const cantidadDe = (body) => {
+// En una Manitou la cantidad puede ser 0 (13/10/2026): ese repuesto no hace
+// falta en la unidad, y así no se pide ni se cotiza. En General, 1 o más.
+const cantidadDe = (body, minimo = 1) => {
   const cant = Number(body.cant);
-  return Number.isFinite(cant) && cant >= 1 ? cant : null;
+  return Number.isFinite(cant) && cant >= minimo ? cant : null;
 };
 
 const datosRepuesto = (body, cc) => {
@@ -406,8 +408,8 @@ export const actualizarRepuesto = async (req, res) => {
 
     if (repuesto.origen) {
       // Copiado de General: acá solo la cantidad.
-      const cant = cantidadDe(req.body);
-      if (cant === null) return res.status(400).json({ error: "La cantidad tiene que ser 1 o más" });
+      const cant = cantidadDe(req.body, 0);
+      if (cant === null) return res.status(400).json({ error: "La cantidad tiene que ser 0 o más" });
       repuesto.cant = cant;
     } else {
       const { datos, error } = datosRepuesto(req.body, general ? "" : unidadDeSeccion(fila.seccion));
@@ -416,6 +418,7 @@ export const actualizarRepuesto = async (req, res) => {
     }
 
     if (req.body.pedir) {
+      if (!(repuesto.cant > 0)) return res.status(400).json({ error: "Con cantidad 0 no se pide" });
       const solicita = limpiar(req.usuario?.nombre);
       const pedido = await crearPedido(paraPedido(repuesto), solicita);
       Object.assign(repuesto, { pedido: pedido._id, nro_pedido: pedido.nro_pedido, solicita, fecha: new Date() });

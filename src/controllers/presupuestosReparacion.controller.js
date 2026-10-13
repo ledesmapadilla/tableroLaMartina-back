@@ -54,6 +54,7 @@ export const crear = async (req, res) => {
     if (fila.seccion === SECCION_GENERAL) {
       return res.status(400).json({ error: "General es la plantilla: se cotiza en cada Manitou" });
     }
+    if (!(repuesto.cant > 0)) return res.status(400).json({ error: "Con cantidad 0 no se cotiza" });
     const ya = await PresupuestoReparacion.findOne({ repuesto: repuesto._id }).lean();
     if (ya) return res.status(400).json({ error: `Ese repuesto ya se mandó a cotizar (${ya.estado})` });
 
@@ -128,6 +129,26 @@ export const actualizar = async (req, res) => {
     res.json(p);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+// POST /:id/cancelar (13/10/2026): el taller deshace un "mandar a cotizar"
+// que fue por error. Solo mientras el analista no lo cotizó; cotizado, lo
+// borra el analista (DELETE). El repuesto vuelve a "Pedir cotización".
+export const cancelar = async (req, res) => {
+  try {
+    const p = await PresupuestoReparacion.findById(req.params.id);
+    if (!p) return res.status(404).json({ error: "Presupuesto no encontrado" });
+    if (p.estado !== "Para cotizar") {
+      return res.status(400).json({ error: "El analista ya lo cotizó: solo él lo puede borrar" });
+    }
+    await p.deleteOne();
+    if (p.archivo?.publicId && estaConfigurado()) {
+      await borrarArchivo(p.archivo.publicId, p.archivo.tipo || "image").catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 

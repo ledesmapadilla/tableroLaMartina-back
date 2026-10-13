@@ -8,7 +8,8 @@ const RepuestoSchema = new Schema(
     pedido: { type: Schema.Types.ObjectId, ref: "SanPabloPedido", default: null },
     nro_pedido: { type: Number },
     nombre_repuesto: { type: String, trim: true, required: true },
-    cant: { type: Number, min: 1, required: true },
+    // 0 solo en una Manitou (13/10/2026): no hace falta en esa unidad.
+    cant: { type: Number, min: 0, required: true },
     unidad: { type: String, trim: true, required: true },
     // El de la Manitou; vacío en General, que es la plantilla.
     cc: { type: String, trim: true, default: "" },
