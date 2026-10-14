@@ -10,7 +10,6 @@ import servicesRouter from "./services.routes.js";
 import paradasRouter from "./paradas.routes.js";
 import trabajosCamionetaRouter from "./trabajoscamioneta.routes.js";
 import trabajosTractorRouter from "./trabajostractor.routes.js";
-import cronRouter from "./cron.routes.js";
 import configRouter from "./config.routes.js";
 import visitasRouter from "./visitas.routes.js";
 import servicesTractorRouter from "./servicestractor.routes.js";
@@ -66,14 +65,11 @@ router.get("/", (req, res) => res.json({ message: "API funcionando" }));
  *               ingreso, que no tiene usuario.
  *  - GET /tractores  de ahi saca Visitas las patentes. Solo lectura: crear o
  *               editar un tractor sigue pidiendo token.
- *  - /cron      lo llama Vercel todos los dias a las 11; no hay nadie que
- *               inicie sesion del otro lado.
  */
 const ES_PUBLICO = [
   (req) => req.path.startsWith("/auth"),
   (req) => req.path.startsWith("/visitas"),
   (req) => req.method === "GET" && req.path === "/tractores",
-  (req) => req.path.startsWith("/cron"),
 ];
 
 router.use((req, res, next) =>
@@ -84,7 +80,7 @@ router.use((req, res, next) =>
  * Quién escribe en cada recurso, según la tabla de Roles (Altas › Usuarios ›
  * Roles): escribirSi() deja pasar las lecturas y a crear, modificar o borrar
  * le pide "Editar" en alguna de esas pantallas. Las claves están en
- * permisos/catalogo.js. Lo que no lleva escribirSi (auth, cron, visitas) sigue
+ * permisos/catalogo.js. Lo que no lleva escribirSi (auth, visitas) sigue
  * como antes.
  */
 const CAMIONETA_TAREAS = ["camionetas.tareas"];
@@ -148,7 +144,6 @@ router.use(
   }),
   trabajosTractorRouter
 );
-router.use("/cron", cronRouter);
 // El control de config va ruta por ruta en config.routes.js: el monto de
 // autorización tiene su propia regla.
 router.use("/config", configRouter);

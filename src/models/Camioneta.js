@@ -15,8 +15,6 @@ const CamionetaSchema = new Schema(
     },
     responsable:      { type: String },
     telefono:         { type: String, default: "" },
-    callmebotApiKey:  { type: String, default: "" },
-    serviceNotificado:{ type: Boolean, default: false },
     observaciones:    { type: String },
   },
   { timestamps: true }
