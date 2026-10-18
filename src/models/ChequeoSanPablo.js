@@ -44,6 +44,9 @@ const ReparacionSchema = new Schema(
     problema: { type: String, trim: true, required: true },
     detalle: { type: String, trim: true, default: "" },
     realizado: { type: Boolean, default: false },
+    // Los detalles de cómo se hizo (18/10/2026): texto libre, del + al lado
+    // del círculo.
+    notas: { type: String, trim: true, default: "" },
   },
   { _id: true }
 );

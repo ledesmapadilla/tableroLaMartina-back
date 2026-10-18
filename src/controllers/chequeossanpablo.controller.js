@@ -210,6 +210,7 @@ export const updateChequeo = async (req, res) => {
           problema: limpiar(r.problema),
           detalle: limpiar(r.detalle),
           realizado: Boolean(r.realizado),
+          notas: limpiar(r.notas),
         }))
         .filter((r) => r.problema);
     }
