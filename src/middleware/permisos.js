@@ -30,7 +30,7 @@ export const escribirSi = (claves) => async (req, res, next) => {
 /**
  * Pide "Ver" para leer. Las lecturas en general no lo piden (ver escribirSi);
  * esto es para lo que no lee ninguna otra pantalla y no tiene que verlo
- * cualquiera con sesión, como Compras › Resultados.
+ * cualquiera con sesión.
  */
 export const exigirVer = (claves) => async (req, res, next) => {
   try {

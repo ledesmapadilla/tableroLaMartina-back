@@ -8,6 +8,7 @@ export const GRUPPO_LABELS = {
   5: "Grupo 5",
   6: "Berdina",
   7: "San Pablo",
+  8: "En desuso",
 };
 
 // Campos del alta que se auditan, en el orden en que se muestran en la tabla.

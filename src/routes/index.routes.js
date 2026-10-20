@@ -22,6 +22,7 @@ import centrosCostoRouter from "./centroscosto.routes.js";
 import personalRouter from "./personal.routes.js";
 import tareasRouter from "./tareas.routes.js";
 import clientesRouter from "./clientes.routes.js";
+import gasoilRouter from "./gasoil.routes.js";
 import partesRouter from "./partes.routes.js";
 import periodosRouter from "./periodos.routes.js";
 import variablesRouter from "./variables.routes.js";
@@ -46,9 +47,8 @@ import archivosRouter from "./archivos.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
-import { getResultados, getResultadosDetalle } from "../controllers/resultados.controller.js";
 import { verificarToken, soloRoles } from "../middleware/auth.js";
-import { escribirSi, exigirVer } from "../middleware/permisos.js";
+import { escribirSi } from "../middleware/permisos.js";
 
 const router = Router();
 
@@ -184,10 +184,8 @@ const PEDIDOS = {
 router.use("/berdina/pedidos", escribirSi(PEDIDOS), berdinaPedidosRouter);
 router.use("/sanpablo/pedidos", escribirSi(PEDIDOS), sanPabloPedidosRouter);
 router.use("/op", escribirSi(["compras.comprador"]), opRouter);
-// Resultados (11/10/2026): lo gastado por taller y CC. Pide "Ver" en la tabla
-// de Roles (compras.resultados).
-router.get("/compras/resultados", exigirVer(["compras.resultados"]), getResultados);
-router.get("/compras/resultados/detalle", exigirVer(["compras.resultados"]), getResultadosDetalle);
+// Gasoil (20/10/2026): la planilla de consumo de Berdina y San Pablo.
+router.use("/gasoil", escribirSi(["compras.gasoil"]), gasoilRouter);
 // Presupuestos reparaciones (08/10/2026): el taller manda a cotizar desde
 // Manitous › General y el analista cotiza.
 router.use(
