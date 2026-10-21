@@ -1,6 +1,7 @@
 import GasoilDia, { CAMPOS_GASOIL, ESTABLECIMIENTO_DE_CAMPO } from "../models/GasoilDia.js";
 import IngresoGasoil from "../models/IngresoGasoil.js";
 import AuditoriaGasoil from "../models/AuditoriaGasoil.js";
+import StockInicialGasoil from "../models/StockInicialGasoil.js";
 import ParteDiario from "../models/ParteDiario.js";
 // Para el populate del detalle: que estén registrados aunque nadie más los
 // haya importado.
@@ -52,6 +53,37 @@ const esSuCampo = (req, res, campo) => {
   return false;
 };
 
+// El consumo de los partes de un campo, sumado por día:
+// [{ _id: "AAAA-MM-DD", combustible, combTurbo }].
+const consumosPorDia = (campo) =>
+  ParteDiario.aggregate([
+    {
+      $match: {
+        establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
+        $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
+      },
+    },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
+        combustible: { $sum: { $ifNull: ["$combustible", 0] } },
+        combTurbo: { $sum: { $ifNull: ["$combTurbo", 0] } },
+      },
+    },
+  ]);
+
+// Los ingresos de un campo, sumados por día: [{ _id: "AAAA-MM-DD", litros }].
+const ingresosPorDia = (campo) =>
+  IngresoGasoil.aggregate([
+    { $match: { campo } },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
+        litros: { $sum: "$litros" },
+      },
+    },
+  ]);
+
 /**
  * La planilla de consumos de un campo, del día más nuevo al más viejo. Un
  * renglón por día que tenga combustible en los partes, un ingreso o
@@ -69,32 +101,12 @@ export const getAll = async (req, res) => {
     const { campo } = req.query;
     if (!campoValido(campo, res)) return;
 
-    const [porDia, ingresos, cargados] = await Promise.all([
-      ParteDiario.aggregate([
-        {
-          $match: {
-            establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
-            $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
-          },
-        },
-        {
-          $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
-            combustible: { $sum: { $ifNull: ["$combustible", 0] } },
-            combTurbo: { $sum: { $ifNull: ["$combTurbo", 0] } },
-          },
-        },
-      ]),
-      IngresoGasoil.aggregate([
-        { $match: { campo } },
-        {
-          $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
-            litros: { $sum: "$litros" },
-          },
-        },
-      ]),
+    const [porDia, ingresos, cargados, stockInicial, auditorias] = await Promise.all([
+      consumosPorDia(campo),
+      ingresosPorDia(campo),
       GasoilDia.find({ campo }).lean(),
+      StockInicialGasoil.findOne({ campo }).select("fecha litros").lean(),
+      AuditoriaGasoil.find({ "cargas.campo": campo }).select("cargas").lean(),
     ]);
 
     const filas = new Map();
@@ -108,6 +120,8 @@ export const getAll = async (req, res) => {
           ingreso: null,
           saldo: 0,
           observaciones: "",
+          stockInicial: null,
+          auditoria: null,
           _id: null,
         });
       }
@@ -122,6 +136,18 @@ export const getAll = async (req, res) => {
     }
     for (const i of ingresos) fila(i._id).ingreso = i.litros;
     for (const g of cargados) Object.assign(fila(claveDia(g.fecha)), { observaciones: g.observaciones || "", _id: g._id });
+    // El día del stock inicial (21/10/2026): el punto de partida de las
+    // auditorías. Tiene renglón aunque ese día no haya consumo. Todavía no
+    // entra en el saldo.
+    if (stockInicial) fila(claveDia(stockInicial.fecha)).stockInicial = stockInicial.litros;
+    // Y el de cada auditoría ya cargada en este campo (el día de la carga del
+    // encargado, como en el resultado): los litros medidos. Con dos el mismo
+    // día queda la última medición.
+    const medidas = auditorias
+      .map((a) => a.cargas.find((c) => c.campo === campo))
+      .filter((c) => c && c.litros !== null && c.litros !== undefined && c.fechaCarga)
+      .sort((a, b) => new Date(a.fechaCarga) - new Date(b.fechaCarga));
+    for (const c of medidas) fila(diaArgentina(c.fechaCarga)).auditoria = c.litros;
 
     // El saldo se acumula del más viejo al más nuevo.
     const ordenadas = [...filas.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -298,10 +324,91 @@ const cargasVisibles = (req, auditoria) => {
   return auditoria.cargas.filter((c) => c.campo === propio);
 };
 
+// El día de la Argentina (UTC-3) de un momento: la carga del encargado a las
+// 22 h sigue siendo de ese día, no del siguiente en UTC.
+const diaArgentina = (f) => new Date(new Date(f).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const redondear = (n) => Math.round(n * 100) / 100;
+
+/**
+ * El resultado de las auditorías de un campo (21/10/2026): cuánto sobra
+ * (positivo) o falta (negativo) en el tanque contra lo que tendría que haber.
+ *
+ * - La primera parte del stock inicial; cada una de las siguientes, de los
+ *   litros medidos en la anterior.
+ * - Lo que tendría que haber = el punto de partida + los ingresos − los
+ *   consumos de los partes, de los días que van del de partida al de la
+ *   auditoría, los dos incluidos. El stock inicial cuenta como medido al
+ *   empezar su día y la auditoría al terminar el suyo: por eso la siguiente
+ *   arranca al día siguiente.
+ * - El día de la auditoría es el de la carga del encargado, no el del pedido.
+ * - Las cargadas antes del stock inicial, o sin stock inicial, no tienen
+ *   resultado.
+ *
+ * Devuelve un Map: id de la auditoría → el detalle de la cuenta.
+ */
+const resultadosAuditorias = async (campo, auditorias) => {
+  const stockInicial = await StockInicialGasoil.findOne({ campo }).select("fecha litros").lean();
+  const resultados = new Map();
+  if (!stockInicial) return resultados;
+
+  const [porDia, ingresos] = await Promise.all([consumosPorDia(campo), ingresosPorDia(campo)]);
+  // Del primer día "desde" al último "hasta", los dos incluidos.
+  const suma = (filas, valor, desde, hasta) =>
+    filas.filter((f) => f._id >= desde && f._id <= hasta).reduce((t, f) => t + valor(f), 0);
+  const diaSiguiente = (d) => {
+    const f = new Date(`${d}T00:00:00.000Z`);
+    f.setUTCDate(f.getUTCDate() + 1);
+    return f.toISOString().slice(0, 10);
+  };
+
+  // Las cargadas de este campo, de la más vieja a la más nueva.
+  const cargadas = auditorias
+    .map((a) => ({ id: String(a._id), carga: a.cargas.find((c) => c.campo === campo) }))
+    .filter(({ carga }) => carga && carga.litros !== null && carga.litros !== undefined && carga.fechaCarga)
+    .map(({ id, carga }) => ({ id, litros: carga.litros, dia: diaArgentina(carga.fechaCarga) }))
+    .sort((a, b) => a.dia.localeCompare(b.dia));
+
+  let partida = { litros: stockInicial.litros, desde: claveDia(stockInicial.fecha), origen: "stock inicial" };
+  for (const a of cargadas) {
+    if (a.dia < partida.desde) continue;
+    const ingresado = suma(ingresos, (f) => f.litros, partida.desde, a.dia);
+    const consumido = suma(porDia, (f) => f.combustible + f.combTurbo, partida.desde, a.dia);
+    const teorico = partida.litros + ingresado - consumido;
+    resultados.set(a.id, {
+      origen: partida.origen,
+      partida: partida.litros,
+      desde: partida.desde,
+      hasta: a.dia,
+      ingresos: redondear(ingresado),
+      consumos: redondear(consumido),
+      teorico: redondear(teorico),
+      medido: a.litros,
+      resultado: redondear(a.litros - teorico),
+    });
+    partida = { litros: a.litros, desde: diaSiguiente(a.dia), origen: "auditoría anterior" };
+  }
+  return resultados;
+};
+
 export const getAuditorias = async (req, res) => {
   try {
     const lista = await AuditoriaGasoil.find().sort({ fechaPedido: -1 }).lean();
-    res.json(lista.map((a) => ({ ...a, cargas: cargasVisibles(req, a) })));
+    // El resultado (sobra o falta), con el detalle de la cuenta para el
+    // resumen. No lo ve el encargado de taller.
+    const conResultado = req.usuario?.rol !== "solicitante";
+    const porCampo = conResultado
+      ? Object.fromEntries(
+          await Promise.all(CAMPOS_GASOIL.map(async (c) => [c, await resultadosAuditorias(c, lista)]))
+        )
+      : {};
+    res.json(
+      lista.map((a) => ({
+        ...a,
+        cargas: cargasVisibles(req, a).map((c) =>
+          conResultado ? { ...c, resultado: porCampo[c.campo].get(String(a._id)) ?? null } : c
+        ),
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -418,5 +525,82 @@ export const getAuditoriasPendientes = async (req, res) => {
     res.json(pendientes);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Stock inicial (21/10/2026) ──
+// El stock con el que arranca el tanque de cada campo, arriba de las
+// auditorías: litros, fecha y foto del nivel. Uno por campo.
+
+// Los dos campos, con lo cargado o null. El encargado ve solo el suyo.
+export const getStockInicial = async (req, res) => {
+  try {
+    const cargados = await StockInicialGasoil.find().lean();
+    const campos =
+      req.usuario?.rol === "solicitante" ? CAMPOS_GASOIL.filter((c) => c === tallerDe(req.usuario)) : CAMPOS_GASOIL;
+    res.json(campos.map((campo) => ({ campo, stock: cargados.find((s) => s.campo === campo) || null })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Quien puede corregir un stock inicial ya cargado (21/10/2026): solo Nacho,
+// el superadmin de usuario "nacho". Copia de puedeCorregirStock en
+// TableroFront/src/components/compras/GasoilAuditorias.jsx.
+const corrigeStock = (usuario) => usuario?.rol === "superadmin" && usuario?.usuario === "nacho";
+
+// Cargar el stock inicial de un campo (crea o pisa). Una vez cargado no se
+// corrige (21/10/2026), salvo Nacho; los demás solo cambian la foto. El
+// encargado, solo el de su taller.
+export const guardarStockInicial = async (req, res) => {
+  try {
+    const { campo } = req.params;
+    if (!campoValido(campo, res)) return;
+    if (!esSuCampo(req, res, campo)) return;
+    if (!corrigeStock(req.usuario) && (await StockInicialGasoil.exists({ campo }))) {
+      return res.status(409).json({ error: "El stock inicial ya está cargado y no se corrige" });
+    }
+
+    const litros = numero(req.body.litros);
+    if (litros === null || Number.isNaN(litros) || litros < 0) {
+      return res.status(400).json({ error: "Faltan los litros" });
+    }
+    if (!req.body.fecha) return res.status(400).json({ error: "Falta la fecha" });
+    const f = req.body.foto;
+    if (!f?.url) return res.status(400).json({ error: "Falta la foto del nivel" });
+
+    const stock = await StockInicialGasoil.findOneAndUpdate(
+      { campo },
+      {
+        $set: {
+          fecha: dia(req.body.fecha),
+          litros,
+          foto: { url: f.url, nombre: f.nombre || "", publicId: f.publicId || "", tipo: f.tipo || "image" },
+          cargadoPor: req.usuario?.nombre || req.usuario?.usuario || "",
+        },
+      },
+      { returnDocument: "after", upsert: true, runValidators: true }
+    ).lean();
+    res.json(stock);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Poner o sacar solo la foto del stock inicial (la x y el Subir de la caja);
+// `foto: null` la saca. Los litros y la fecha no se tocan. El archivo de
+// Cloudinary lo borra el front.
+export const fotoStockInicial = async (req, res) => {
+  try {
+    const { campo } = req.params;
+    if (!campoValido(campo, res)) return;
+    if (!esSuCampo(req, res, campo)) return;
+    const f = req.body.foto;
+    const foto = f?.url ? { url: f.url, nombre: f.nombre || "", publicId: f.publicId || "", tipo: f.tipo || "image" } : null;
+    const stock = await StockInicialGasoil.findOneAndUpdate({ campo }, { $set: { foto } }, { returnDocument: "after" }).lean();
+    if (!stock) return res.status(404).json({ error: "Stock inicial no encontrado" });
+    res.json(stock);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 };

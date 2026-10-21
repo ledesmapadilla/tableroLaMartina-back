@@ -14,6 +14,9 @@ import {
   borrarAuditoria,
   fotoAuditoria,
   getAuditoriasPendientes,
+  getStockInicial,
+  guardarStockInicial,
+  fotoStockInicial,
 } from "../controllers/gasoil.controller.js";
 
 const router = Router();
@@ -40,6 +43,11 @@ router.post("/auditorias", pedirAuditoria);
 router.put("/auditorias/:id/:campo", cargarAuditoria);
 router.put("/auditorias/:id/:campo/foto", fotoAuditoria);
 router.delete("/auditorias/:id", borrarAuditoria);
+
+// El stock inicial de cada campo, arriba de las auditorías.
+router.get("/stock-inicial", getStockInicial);
+router.put("/stock-inicial/:campo", guardarStockInicial);
+router.put("/stock-inicial/:campo/foto", fotoStockInicial);
 
 router.delete("/:id", remove);
 

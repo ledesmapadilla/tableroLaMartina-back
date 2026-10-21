@@ -20,6 +20,10 @@ const RepuestoSchema = new Schema(
     // En una Manitou, el repuesto de General del que es copia (09/10/2026).
     // Null en General y en lo que quedó suelto al borrarse el original.
     origen: { type: Schema.Types.ObjectId, default: null },
+    // Una copia con la descripción escrita en su Manitou (21/10/2026), para
+    // la salvedad de ese caso: la réplica de General ya no se la pisa. Lo
+    // demás sigue viniendo de General.
+    descripcionPropia: { type: Boolean, default: false },
   },
   { _id: true }
 );
@@ -72,6 +76,18 @@ const ChequeoSanPabloSchema = new Schema(
     // las toca.
     reparaciones: { type: [ReparacionSchema], default: [] },
     chequeado: { type: Boolean, default: false },
+    // Cuánto pesa la tarea dentro de su sistema, en % (21/10/2026): las de un
+    // sistema suman 100 (el 100% de Motor). Se carga en General y la réplica
+    // lo copia a cada Manitou, donde se puede cambiar para esa máquina (según
+    // el estado de cada elemento) sin tocar General. Null sin cargar.
+    peso: { type: Number, min: [0, "El peso va de 0 a 100"], max: [100, "El peso va de 0 a 100"], default: null },
+    // En una Manitou, el peso cambiado ahí: la réplica de General ya no lo
+    // pisa. Borrándolo en la Manitou vuelve al de General.
+    pesoPropio: { type: Boolean, default: false },
+    // En una Manitou, cuánto lleva la tarea en % (21/10/2026): lo carga el
+    // taller a mano en la columna que antes era el círculo de OK. Null sin
+    // cargar. Al guardarlo, el OK (`chequeado`) queda en 100% sí y si no, no.
+    avance: { type: Number, min: [0, "El avance va de 0 a 100"], max: [100, "El avance va de 0 a 100"], default: null },
     tarea: { type: String, enum: ["ok", "x", null], default: null },
     // El problema de antes, uno solo con la x (tarea). Las filas viejas se
     // pasan a `problemas` la primera vez que se tocan.

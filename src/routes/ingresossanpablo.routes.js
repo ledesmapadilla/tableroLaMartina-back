@@ -25,6 +25,8 @@ import {
   saveEstadoIngreso,
   getEstadosManitou,
   saveEstadoManitou,
+  getPesosManitou,
+  savePesosManitou,
 } from "../controllers/chequeossanpablo.controller.js";
 
 const router = Router();
@@ -41,6 +43,9 @@ router.put("/estado-ingreso", saveEstadoIngreso);
 // En reparación o en espera, por Manitou y cosecha (11/10/2026).
 router.get("/estado-manitou", getEstadosManitou);
 router.put("/estado-manitou", saveEstadoManitou);
+// Cuánto pesa cada sistema en la reparación, cargado en General (21/10/2026).
+router.get("/pesos-manitou", getPesosManitou);
+router.put("/pesos-manitou", savePesosManitou);
 router.get("/chequeos", getChequeos);
 router.get("/chequeos/real", getGastoReal);
 router.post("/chequeos", createChequeo);

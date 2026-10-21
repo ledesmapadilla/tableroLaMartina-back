@@ -4,6 +4,7 @@ import PresupuestoReparacion from "../models/PresupuestoReparacion.js";
 import OC from "../models/OC.js";
 import EstadoIngresoManitou from "../models/EstadoIngresoManitou.js";
 import EstadoManitou, { ESTADOS_MANITOU } from "../models/EstadoManitou.js";
+import PesosManitou from "../models/PesosManitou.js";
 import {
   SECCIONES_MANITOU,
   SECCION_GENERAL,
@@ -61,9 +62,9 @@ const cotizadosDe = async (ids) =>
     : new Set();
 
 // Deja la copia de una fila de General en cada Manitou igual a ella: el
-// ítem y los repuestos (nombre, unidad, urgencia y descripción). La
+// ítem, el peso (salvo el cambiado en la Manitou) y los repuestos (nombre, unidad, urgencia y descripción). La
 // cantidad es de cada Manitou y el C.C. es el de la unidad; lo pedido ya no
-// se toca. Un repuesto borrado en General se va de las copias, salvo que ya
+// se toca, ni la descripción que se escribió en la Manitou. Un repuesto borrado en General se va de las copias, salvo que ya
 // se haya pedido o mandado a cotizar: ese queda suelto en su Manitou.
 export const replicar = async (general) => {
   const copias = await ChequeoSanPablo.find({ origen: general._id });
@@ -81,6 +82,8 @@ export const replicar = async (general) => {
       new ChequeoSanPablo({ cosecha: general.cosecha, seccion, sistema: general.sistema, origen: general._id });
     copia.item = general.item;
     copia.descripcion = general.descripcion;
+    // El peso, salvo el que se cambió en la Manitou (pesoPropio).
+    if (!copia.pesoPropio) copia.peso = general.peso ?? null;
 
     for (const g of general.repuestos) {
       const datos = {
@@ -91,7 +94,11 @@ export const replicar = async (general) => {
       };
       const r = copia.repuestos.find((x) => String(x.origen) === String(g._id));
       if (!r) copia.repuestos.push({ ...datos, cant: g.cant, cc: nro, solicita: g.solicita, origen: g._id });
-      else if (!r.pedido) Object.assign(r, datos);
+      // La descripción escrita en la Manitou queda como la dejaron ahí.
+      else if (!r.pedido) {
+        if (r.descripcionPropia) delete datos.descripcion;
+        Object.assign(r, datos);
+      }
     }
     for (const r of [...copia.repuestos]) {
       if (!r.origen || deGeneral.has(String(r.origen))) continue;
@@ -191,13 +198,33 @@ export const updateChequeo = async (req, res) => {
     const body = req.body;
     // En General solo el ítem y su descripción; en una Manitou todo menos eso.
     const general = esGeneral(fila);
-    if (general && ["chequeado", "problema", "tarea", "reparaciones", "no_aplica"].some((c) => c in body)) {
+    if (general && ["chequeado", "problema", "tarea", "reparaciones", "no_aplica", "avance"].some((c) => c in body)) {
       return res.status(400).json({ error: SOLO_UNIDAD });
     }
     if (!general && ("item" in body || "descripcion" in body)) return res.status(400).json({ error: SOLO_GENERAL });
+    // El peso de la tarea en su sistema (21/10/2026). En General se carga y
+    // la réplica de abajo lo copia a las Manitou. En una Manitou se cambia
+    // solo para esa máquina y queda propio; vacío ahí vuelve al de General.
+    if ("peso" in body) {
+      const v = body.peso;
+      const peso = v === "" || v === null || v === undefined ? null : Number(v);
+      if (peso !== null && (!Number.isFinite(peso) || peso < 0 || peso > 100)) {
+        return res.status(400).json({ error: "El peso va de 0 a 100" });
+      }
+      const redondo = peso === null ? null : Math.round(peso * 10) / 10;
+      if (general) fila.peso = redondo;
+      else if (redondo !== null) {
+        fila.peso = redondo;
+        fila.pesoPropio = true;
+      } else {
+        const deGeneral = fila.origen ? await ChequeoSanPablo.findById(fila.origen).select("peso").lean() : null;
+        fila.peso = deGeneral?.peso ?? null;
+        fila.pesoPropio = false;
+      }
+    }
     // No aplica se marca y se desmarca desde la Manitou (10/10/2026).
     if ("no_aplica" in body) fila.no_aplica = Boolean(body.no_aplica);
-    if (fila.no_aplica && ["chequeado", "problema", "tarea", "reparaciones"].some((c) => c in body)) {
+    if (fila.no_aplica && ["chequeado", "problema", "tarea", "reparaciones", "avance", "peso"].some((c) => c in body)) {
       return res.status(400).json({ error: "Esta tarea no aplica a esta Manitou" });
     }
     if ("descripcion" in body) fila.descripcion = limpiar(body.descripcion);
@@ -221,6 +248,17 @@ export const updateChequeo = async (req, res) => {
     }
     // Con problemas el OK no se toca a mano: sale de los resueltos.
     if ("chequeado" in body && problemasDe(fila).length === 0) fila.chequeado = Boolean(body.chequeado);
+    // El % de la tarea (21/10/2026), cargado a mano; vacío lo borra. Manda
+    // sobre el OK: al 100% la tarea queda con OK y, si no, sin.
+    if ("avance" in body) {
+      const v = body.avance;
+      const avance = v === "" || v === null || v === undefined ? null : Number(v);
+      if (avance !== null && (!Number.isFinite(avance) || avance < 0 || avance > 100)) {
+        return res.status(400).json({ error: "El avance va de 0 a 100" });
+      }
+      fila.avance = avance === null ? null : Math.round(avance * 10) / 10;
+      fila.chequeado = fila.avance === 100;
+    }
     if ("problema" in body) fila.problema = limpiar(body.problema);
     if ("tarea" in body) {
       const tarea = body.tarea || null;
@@ -327,7 +365,8 @@ export const removeChequeo = async (req, res) => {
 //
 // En General se cargan, corrigen y borran, y cada cambio se copia a las
 // Manitou; ahí no se piden ni llevan C.C. En una Manitou, de un repuesto
-// copiado solo se cambia la cantidad, y el C.C. es siempre el de la unidad.
+// copiado se cambia la cantidad y la descripción (21/10/2026, la salvedad
+// de esa máquina; no va a General), y el C.C. es siempre el de la unidad.
 
 // En una Manitou la cantidad puede ser 0 (13/10/2026): ese repuesto no hace
 // falta en la unidad, y así no se pide ni se cotiza. En General, 1 o más.
@@ -408,10 +447,19 @@ export const actualizarRepuesto = async (req, res) => {
     if (general && req.body.pedir) return res.status(400).json({ error: SOLO_UNIDAD });
 
     if (repuesto.origen) {
-      // Copiado de General: acá solo la cantidad.
+      // Copiado de General: acá la cantidad y la descripción (21/10/2026),
+      // la salvedad de esta Manitou. Cambiada, queda propia y la réplica de
+      // General ya no la pisa.
       const cant = cantidadDe(req.body, 0);
       if (cant === null) return res.status(400).json({ error: "La cantidad tiene que ser 0 o más" });
       repuesto.cant = cant;
+      if (req.body.descripcion !== undefined) {
+        const descripcion = limpiar(req.body.descripcion);
+        if (descripcion !== (repuesto.descripcion || "")) {
+          repuesto.descripcion = descripcion;
+          repuesto.descripcionPropia = true;
+        }
+      }
     } else {
       const { datos, error } = datosRepuesto(req.body, general ? "" : unidadDeSeccion(fila.seccion));
       if (error) return res.status(400).json({ error });
@@ -580,6 +628,47 @@ export const saveEstadoManitou = async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     ).lean();
     res.json(doc);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ── Pesos de los sistemas (21/10/2026) ──
+// Cuánto pesa cada sistema en la reparación, en %, cargado a mano en General
+// y el mismo para las cinco Manitou. GET ?cosecha → { pesos: { [sistema]: % } }
+// (vacío mientras no se cargó); PUT { cosecha, pesos }: todos los sistemas,
+// 0 o más, y que sumen 100.
+const pesosComoObjeto = (doc) => Object.fromEntries(doc?.pesos ? Object.entries(doc.pesos) : []);
+
+export const getPesosManitou = async (req, res) => {
+  try {
+    const cosecha = Number(req.query.cosecha);
+    if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    const doc = await PesosManitou.findOne({ cosecha }).lean();
+    res.json({ pesos: pesosComoObjeto(doc) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const savePesosManitou = async (req, res) => {
+  try {
+    const cosecha = Number(req.body.cosecha);
+    if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    const pesos = {};
+    for (const sistema of SISTEMAS) {
+      const n = Number(req.body.pesos?.[sistema]);
+      if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: "Cada sistema lleva un % de 0 o más" });
+      pesos[sistema] = Math.round(n * 100) / 100;
+    }
+    const suma = Object.values(pesos).reduce((t, n) => t + n, 0);
+    if (Math.abs(suma - 100) > 0.01) return res.status(400).json({ error: `Los pesos tienen que sumar 100% (suman ${suma}%)` });
+    const doc = await PesosManitou.findOneAndUpdate(
+      { cosecha },
+      { $set: { pesos } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json({ pesos: pesosComoObjeto(doc) });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
