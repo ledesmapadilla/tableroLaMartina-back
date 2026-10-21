@@ -181,7 +181,17 @@ export const createChequeo = async (req, res) => {
     const item = limpiar(req.body.item);
     if (!item) return res.status(400).json({ error: "Poné el ítem" });
     const fila = await ChequeoSanPablo.create({ ...clave, item, descripcion: limpiar(req.body.descripcion) });
-    await replicar(fila);
+    // O queda en General y en las cinco Manitou, o no queda (21/10/2026): si
+    // la copia falla, se borra lo que se alcanzó a guardar y vuelve el error.
+    // Antes la fila quedaba en General sin copias ("Desmontar carro porta
+    // uñas", del 10/10, recién se copió al editarla el 21/10).
+    try {
+      await replicar(fila);
+    } catch (error) {
+      await ChequeoSanPablo.deleteMany({ origen: fila._id });
+      await ChequeoSanPablo.deleteOne({ _id: fila._id });
+      return res.status(500).json({ error: `No se pudo copiar el ítem a las Manitou: ${error.message}. No se guardó.` });
+    }
     res.status(201).json(conProblemas(fila));
   } catch (error) {
     res.status(400).json({ error: error.message });
