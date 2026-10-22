@@ -279,7 +279,8 @@ const clave = (valor) => {
 // "2026-08": el certificado de un mes.
 const CLAVE_PERIODO = /^\d{4}-\d{2}$/;
 
-const armarDatos = (body) => {
+// `anterior`: cómo estaba el parte, al editarlo (para combustibleEn).
+const armarDatos = (body, anterior = null) => {
   const datos = { ...body, establecimiento: clave(body.establecimiento) };
   datos.totalHoras = calcularTotalHoras(body);
   datos.horasCC = calcularHorasCC(body.horomIngreso, body.horomSalida);
@@ -312,6 +313,16 @@ const armarDatos = (body) => {
   // periodo el parte va por fecha y no guarda explicación.
   datos.periodo = CLAVE_PERIODO.test(String(body.periodo || "")) ? body.periodo : null;
   datos.motivoFueraDeCierre = datos.periodo ? String(body.motivoFueraDeCierre || "").trim() : "";
+  // Cuándo se escribió el combustible (21/10/2026), para el corte de las
+  // auditorías de gasoil. Lo pone el back, nunca el que llega: ahora si
+  // recién se carga, el mismo si ya estaba (corregir el número no lo mueve) y
+  // nada si no hay combustible.
+  const conCombustible = (d) => d?.combustible != null || d?.combTurbo != null;
+  datos.combustibleEn = !conCombustible(datos)
+    ? null
+    : conCombustible(anterior)
+      ? anterior.combustibleEn ?? null
+      : new Date();
   return datos;
 };
 
@@ -629,7 +640,7 @@ export const update = async (req, res) => {
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       ParteDiario.findById(req.params.id)
-        .select("establecimiento persona tarea lote lotes terminado repartido cantidad fecha pagoDe cc horomIngreso horomSalida provisorio")
+        .select("establecimiento persona tarea lote lotes terminado repartido cantidad fecha pagoDe cc horomIngreso horomSalida provisorio combustible combTurbo combustibleEn")
         .lean(),
       diaProvisorioPendiente(req.body, req.params.id),
       clienteDelPadron(req.body.cliente),
@@ -664,7 +675,7 @@ export const update = async (req, res) => {
     }
 
     const parte = await conRelaciones(
-      ParteDiario.findByIdAndUpdate(req.params.id, armarDatos(req.body), {
+      ParteDiario.findByIdAndUpdate(req.params.id, armarDatos(req.body, anterior), {
         new: true,
         runValidators: true,
       })

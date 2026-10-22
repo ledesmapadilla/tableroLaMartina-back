@@ -140,14 +140,15 @@ export const getAll = async (req, res) => {
     // auditorías. Tiene renglón aunque ese día no haya consumo. Todavía no
     // entra en el saldo.
     if (stockInicial) fila(claveDia(stockInicial.fecha)).stockInicial = stockInicial.litros;
-    // Y el de cada auditoría ya cargada en este campo (el día de la carga del
-    // encargado, como en el resultado): los litros medidos. Con dos el mismo
-    // día queda la última medición.
+    // Y el de cada auditoría ya cargada en este campo (el día de la foto, su
+    // corte, como en el resultado): los litros medidos. Con dos el mismo día
+    // queda la última medición.
+    const momento = (c) => new Date(c.corte || c.fechaCarga);
     const medidas = auditorias
       .map((a) => a.cargas.find((c) => c.campo === campo))
-      .filter((c) => c && c.litros !== null && c.litros !== undefined && c.fechaCarga)
-      .sort((a, b) => new Date(a.fechaCarga) - new Date(b.fechaCarga));
-    for (const c of medidas) fila(diaArgentina(c.fechaCarga)).auditoria = c.litros;
+      .filter((c) => c && c.litros !== null && c.litros !== undefined && (c.corte || c.fechaCarga))
+      .sort((a, b) => momento(a) - momento(b));
+    for (const c of medidas) fila(diaArgentina(momento(c))).auditoria = c.litros;
 
     // El saldo se acumula del más viejo al más nuevo.
     const ordenadas = [...filas.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -336,56 +337,74 @@ const redondear = (n) => Math.round(n * 100) / 100;
  * - La primera parte del stock inicial; cada una de las siguientes, de los
  *   litros medidos en la anterior.
  * - Lo que tendría que haber = el punto de partida + los ingresos − los
- *   consumos de los partes, de los días que van del de partida al de la
- *   auditoría, los dos incluidos. El stock inicial cuenta como medido al
- *   empezar su día y la auditoría al terminar el suyo: por eso la siguiente
- *   arranca al día siguiente.
- * - El día de la auditoría es el de la carga del encargado, no el del pedido.
- * - Las cargadas antes del stock inicial, o sin stock inicial, no tienen
- *   resultado.
+ *   consumos de los partes del período.
+ * - El período corta por el momento en que cada cosa se escribió en el
+ *   sistema (21/10/2026), no por la fecha: entra lo escrito hasta la foto de
+ *   esta auditoría (su `corte`) y después de la foto de la anterior. Lo que
+ *   se escribe después de la foto pasa a la siguiente, aunque sea del mismo
+ *   día. El encargado se ocupa de que antes de la foto esté todo cargado.
+ *   El momento de un consumo es su `combustibleEn` (o createdAt en los partes
+ *   de antes) y el de un ingreso, su createdAt.
+ * - El stock inicial se carga después de medir, así que ahí corta por fecha:
+ *   entran los consumos e ingresos con fecha desde su día, él incluido.
+ * - Las cargadas antes del día del stock inicial, o sin stock inicial, no
+ *   tienen resultado.
  *
- * Devuelve un Map: id de la auditoría → el detalle de la cuenta.
+ * Devuelve un Map: id de la auditoría → el detalle de la cuenta. `desde` es
+ * el día del stock inicial ("AAAA-MM-DD") o el corte de la anterior (ISO), y
+ * `hasta` el corte de esta (ISO).
  */
 const resultadosAuditorias = async (campo, auditorias) => {
   const stockInicial = await StockInicialGasoil.findOne({ campo }).select("fecha litros").lean();
   const resultados = new Map();
   if (!stockInicial) return resultados;
 
-  const [porDia, ingresos] = await Promise.all([consumosPorDia(campo), ingresosPorDia(campo)]);
-  // Del primer día "desde" al último "hasta", los dos incluidos.
-  const suma = (filas, valor, desde, hasta) =>
-    filas.filter((f) => f._id >= desde && f._id <= hasta).reduce((t, f) => t + valor(f), 0);
-  const diaSiguiente = (d) => {
-    const f = new Date(`${d}T00:00:00.000Z`);
-    f.setUTCDate(f.getUTCDate() + 1);
-    return f.toISOString().slice(0, 10);
-  };
+  // Uno por uno, con su momento: desde el día del stock inicial.
+  const [partes, ingresos] = await Promise.all([
+    ParteDiario.find({
+      establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
+      fecha: { $gte: stockInicial.fecha },
+      $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
+    })
+      .select("combustible combTurbo combustibleEn createdAt")
+      .lean(),
+    IngresoGasoil.find({ campo, fecha: { $gte: stockInicial.fecha } }).select("litros createdAt").lean(),
+  ]);
+  const consumos = partes.map((p) => ({
+    momento: new Date(p.combustibleEn ?? p.createdAt).getTime(),
+    litros: (p.combustible || 0) + (p.combTurbo || 0),
+  }));
+  const entradas = ingresos.map((i) => ({ momento: new Date(i.createdAt).getTime(), litros: i.litros || 0 }));
+  // Lo escrito después de `desde` (null: sin límite) y hasta `hasta`, incluido.
+  const suma = (lista, desde, hasta) =>
+    lista.filter((x) => (desde === null || x.momento > desde) && x.momento <= hasta).reduce((t, x) => t + x.litros, 0);
 
-  // Las cargadas de este campo, de la más vieja a la más nueva.
+  // Las cargadas de este campo, de la más vieja a la más nueva por su corte.
+  const diaStock = claveDia(stockInicial.fecha);
   const cargadas = auditorias
     .map((a) => ({ id: String(a._id), carga: a.cargas.find((c) => c.campo === campo) }))
-    .filter(({ carga }) => carga && carga.litros !== null && carga.litros !== undefined && carga.fechaCarga)
-    .map(({ id, carga }) => ({ id, litros: carga.litros, dia: diaArgentina(carga.fechaCarga) }))
-    .sort((a, b) => a.dia.localeCompare(b.dia));
+    .filter(({ carga }) => carga && carga.litros !== null && carga.litros !== undefined && (carga.corte || carga.fechaCarga))
+    .map(({ id, carga }) => ({ id, litros: carga.litros, corte: new Date(carga.corte || carga.fechaCarga) }))
+    .filter((a) => diaArgentina(a.corte) >= diaStock)
+    .sort((a, b) => a.corte - b.corte);
 
-  let partida = { litros: stockInicial.litros, desde: claveDia(stockInicial.fecha), origen: "stock inicial" };
+  let partida = { litros: stockInicial.litros, corte: null, desde: diaStock, origen: "stock inicial" };
   for (const a of cargadas) {
-    if (a.dia < partida.desde) continue;
-    const ingresado = suma(ingresos, (f) => f.litros, partida.desde, a.dia);
-    const consumido = suma(porDia, (f) => f.combustible + f.combTurbo, partida.desde, a.dia);
+    const ingresado = suma(entradas, partida.corte, a.corte.getTime());
+    const consumido = suma(consumos, partida.corte, a.corte.getTime());
     const teorico = partida.litros + ingresado - consumido;
     resultados.set(a.id, {
       origen: partida.origen,
       partida: partida.litros,
       desde: partida.desde,
-      hasta: a.dia,
+      hasta: a.corte.toISOString(),
       ingresos: redondear(ingresado),
       consumos: redondear(consumido),
       teorico: redondear(teorico),
       medido: a.litros,
       resultado: redondear(a.litros - teorico),
     });
-    partida = { litros: a.litros, desde: diaSiguiente(a.dia), origen: "auditoría anterior" };
+    partida = { litros: a.litros, corte: a.corte.getTime(), desde: a.corte.toISOString(), origen: "auditoría anterior" };
   }
   return resultados;
 };
@@ -450,6 +469,10 @@ export const cargarAuditoria = async (req, res) => {
     const foto = req.body.foto;
     if (!foto?.url) return res.status(400).json({ error: "Falta la foto del nivel" });
 
+    // El corte se fija la primera vez (21/10/2026): una corrección no lo corre.
+    const ahora = new Date();
+    const previa = await AuditoriaGasoil.findOne({ _id: id, "cargas.campo": campo }).select("cargas").lean();
+    const cargaPrevia = previa?.cargas.find((c) => c.campo === campo);
     const auditoria = await AuditoriaGasoil.findOneAndUpdate(
       { _id: id, "cargas.campo": campo },
       {
@@ -457,7 +480,8 @@ export const cargarAuditoria = async (req, res) => {
           "cargas.$.litros": litros,
           "cargas.$.foto": { url: foto.url, nombre: foto.nombre || "", publicId: foto.publicId || "", tipo: foto.tipo || "image" },
           "cargas.$.cargadoPor": req.usuario?.nombre || req.usuario?.usuario || "",
-          "cargas.$.fechaCarga": new Date(),
+          "cargas.$.fechaCarga": ahora,
+          "cargas.$.corte": cargaPrevia?.corte ?? cargaPrevia?.fechaCarga ?? ahora,
         },
       },
       { returnDocument: "after", runValidators: true }

@@ -24,7 +24,13 @@ const CargaSchema = new Schema(
     litros: { type: Number, min: [0, "Los litros no pueden ser negativos"], default: null },
     foto: { type: FotoSchema, default: null },
     cargadoPor: { type: String, trim: true, default: "" },
+    // La última vez que se cargó o corrigió.
     fechaCarga: { type: Date, default: null },
+    // El corte de la cuenta (21/10/2026): la primera vez que se cargaron los
+    // litros y la foto. Los consumos y los ingresos escritos hasta ahí entran
+    // en esta auditoría; los de después, en la siguiente. Corregirla no lo
+    // mueve. Las de antes no lo tienen: usan fechaCarga.
+    corte: { type: Date, default: null },
   },
   { _id: false }
 );

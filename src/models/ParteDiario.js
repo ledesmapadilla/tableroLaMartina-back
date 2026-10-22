@@ -95,6 +95,13 @@ const ParteDiarioSchema = new Schema(
     turbo: { type: String, trim: true, default: "" },
     // Combustible cargado al turbo, aparte del de la máquina.
     combTurbo: { type: Number, default: null },
+    // Cuándo se escribió el combustible en el sistema por primera vez
+    // (21/10/2026): lo pone el back, no se ve. Las auditorías de gasoil cortan
+    // por ahí: lo escrito antes de la foto del tanque entra en esa auditoría y
+    // lo escrito después, en la siguiente. Corregir el número no lo mueve;
+    // borrar el combustible lo borra. Los partes de antes no lo tienen: usan
+    // createdAt.
+    combustibleEn: { type: Date, default: null },
 
     // Cargado a la mañana como ayudamemoria, con lo que se sabe hasta ahí
     // (30/09/2026): se guarda sin pasar por las validaciones y se completa al
