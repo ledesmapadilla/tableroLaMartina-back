@@ -24,14 +24,14 @@ const IngresoSanPabloSchema = new Schema(
     // Para qué cosecha se prepara el equipo (2026, 2027…). Lo cargado hasta el
     // 16/09/2026 quedó en la 2027.
     cosecha: { type: Number, required: true, min: 2026 },
-    // Las escaleras nuevas (hechas en el taller), las que entran sin carro y
-    // las bajas no van con ningún carro.
+    // Las escaleras nuevas (hechas en el taller), las que entran sin carro, las
+    // bajas y las reparaciones no van con ningún carro.
     cc: {
       type: Schema.Types.ObjectId,
       ref: "CentroCosto",
       default: null,
       required() {
-        return !this.nuevas && !this.baja && !this.sinCarro;
+        return !this.nuevas && !this.baja && !this.sinCarro && !this.reparacion;
       },
     },
     fechaIngreso: { type: Date, required: true },
@@ -68,6 +68,10 @@ const IngresoSanPabloSchema = new Schema(
     // quién se le avisó.
     baja: { type: Boolean, default: false },
     motivo: { type: String, trim: true, default: "" },
+    // En Escaleras: una reparación ("Reparación escaleras", 25/10/2026): la
+    // fecha, cuántas rotas, cuántas reparadas y observaciones. No mueve
+    // escaleras; suma a los totales de rotas y reparadas.
+    reparacion: { type: Boolean, default: false },
     avisadoA: { type: String, trim: true, default: "" },
     // En Carros porta escaleras: la salida de escaleras que anota un retiro
     // (enlazado por `origen`). Se crea, se actualiza y se borra con el retiro.

@@ -114,6 +114,11 @@ const DE_SIN_CARRO = [...DE_RETIRO, "escalerasSanas", "escalerasRotas", "escaler
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
 
+// Lo que se carga en "Reparación escaleras" (25/10/2026).
+const DE_REPARACION = ["fechaIngreso", "escalerasRotas", "escalerasReparadas", "observaciones"];
+const controlarReparacion = ({ escalerasRotas, escalerasReparadas }) =>
+  (escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0 ? null : "Poné cuántas rotas o cuántas reparadas";
+
 // Una baja necesita cantidad, motivo, quién las desecha y a quién se avisó.
 const controlarBaja = ({ cantidadEscaleras, motivo, ingresadoPor, avisadoA }) => {
   if (!(cantidadEscaleras > 0)) return "Poné cuántas escaleras se dan de baja";
@@ -129,7 +134,12 @@ const soloCampos = (datos, campos) => Object.fromEntries(campos.filter((c) => c 
 // cosecha: las que entraron con los carros y las nuevas, menos las que ya
 // salieron. `ignorarId` es el movimiento que se está editando.
 const controlarSalida = async (cosecha, cantidad, accion, ignorarId = null) => {
-  const filas = await IngresoSanPablo.find({ cosecha, tipo: ESCALERAS, _id: { $ne: ignorarId } }).lean();
+  const filas = await IngresoSanPablo.find({
+    cosecha,
+    tipo: ESCALERAS,
+    reparacion: { $ne: true },
+    _id: { $ne: ignorarId },
+  }).lean();
   const sale = (f) => f.retiro || f.baja;
   const entraron = filas.filter((f) => !sale(f)).reduce((t, f) => t + (f.cantidadEscaleras || 0), 0);
   const salieron = filas.filter(sale).reduce((t, f) => t + (f.cantidadEscaleras || 0), 0);
@@ -213,6 +223,13 @@ export const create = async (req, res) => {
       const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, baja: true, cc: null });
       return res.status(201).json(ingreso);
     }
+    if (req.body.tipo === ESCALERAS && req.body.reparacion) {
+      const datos = soloCampos(datosDe(req.body), DE_REPARACION);
+      const falta = controlarReparacion(datos);
+      if (falta) return res.status(400).json({ error: falta });
+      const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, reparacion: true, cc: null });
+      return res.status(201).json(ingreso);
+    }
     if (req.body.tipo === ESCALERAS && req.body.retiro) {
       const datos = soloCampos(datosDe(req.body), DE_RETIRO);
       if (!(datos.cantidadEscaleras > 0)) return res.status(400).json({ error: "Poné cuántas escaleras se retiran" });
@@ -292,7 +309,11 @@ export const update = async (req, res) => {
     }
 
     let datos = datosDe(req.body);
-    if (actual.tipo === ESCALERAS && actual.baja) {
+    if (actual.tipo === ESCALERAS && actual.reparacion) {
+      datos = soloCampos(datos, DE_REPARACION);
+      const falta = controlarReparacion({ ...actual.toObject(), ...datos });
+      if (falta) return res.status(400).json({ error: falta });
+    } else if (actual.tipo === ESCALERAS && actual.baja) {
       datos = soloCampos(datos, DE_BAJA);
       const falta = controlarBaja({ ...actual.toObject(), ...datos });
       if (falta) return res.status(400).json({ error: falta });
