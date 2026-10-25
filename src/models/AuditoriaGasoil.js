@@ -1,6 +1,5 @@
 import { Schema, model } from "mongoose";
 import { CAMPOS_GASOIL } from "./GasoilDia.js";
-import { conHistorial } from "../services/historial.js";
 
 // Compras › Gasoil › Auditorías (20/10/2026): alguien de Compras pide una
 // auditoría y el encargado de taller de cada campo anota cuántos litros tiene
@@ -46,8 +45,5 @@ const AuditoriaGasoilSchema = new Schema(
 );
 
 AuditoriaGasoilSchema.index({ fechaPedido: -1 });
-
-// El antes y el después de cada cambio, en el registro (25/10/2026).
-AuditoriaGasoilSchema.plugin(conHistorial, { nombre: "Auditoría de gasoil" });
 
 export default model("AuditoriaGasoil", AuditoriaGasoilSchema);

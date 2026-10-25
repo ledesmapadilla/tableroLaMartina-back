@@ -1,6 +1,5 @@
 import { Schema, model } from "mongoose";
 import { CAMPOS_GASOIL } from "./GasoilDia.js";
-import { conHistorial } from "../services/historial.js";
 
 // Compras › Gasoil › Auditorías (21/10/2026): el stock con el que arranca el
 // tanque de cada campo, para tener de dónde partir. Uno solo por campo: los
@@ -29,8 +28,5 @@ const StockInicialGasoilSchema = new Schema(
 );
 
 StockInicialGasoilSchema.index({ campo: 1 }, { unique: true });
-
-// El antes y el después de cada cambio, en el registro (25/10/2026).
-StockInicialGasoilSchema.plugin(conHistorial, { nombre: "Stock inicial de gasoil" });
 
 export default model("StockInicialGasoil", StockInicialGasoilSchema);
