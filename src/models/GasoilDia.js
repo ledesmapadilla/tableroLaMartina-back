@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { conHistorial } from "../services/historial.js";
 
 // Compras › Gasoil (20/10/2026): las observaciones de un día de la planilla
 // de consumos, un documento por campo y día. Ni el consumo ni el saldo se
@@ -20,5 +21,8 @@ const GasoilDiaSchema = new Schema(
 );
 
 GasoilDiaSchema.index({ campo: 1, fecha: 1 }, { unique: true });
+
+// El antes y el después de cada cambio, en el registro (25/10/2026).
+GasoilDiaSchema.plugin(conHistorial, { nombre: "Observación de gasoil" });
 
 export default model("GasoilDia", GasoilDiaSchema);

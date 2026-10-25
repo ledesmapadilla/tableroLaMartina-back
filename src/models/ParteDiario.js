@@ -1,5 +1,6 @@
 import { Schema, model } from "mongoose";
 import { campoEstablecimiento } from "./Establecimiento.js";
+import { conHistorial } from "../services/historial.js";
 
 // Un parte diario es una fila de la planilla mensual: una persona, un día, un
 // turno y UNA tarea con su cantidad. En el Excel las tareas eran 21 columnas,
@@ -126,5 +127,8 @@ ParteDiarioSchema.index(
   { establecimiento: 1, persona: 1, fecha: 1 },
   { partialFilterExpression: { provisorio: true } }
 );
+
+// El antes y el después de cada cambio, en el registro (25/10/2026).
+ParteDiarioSchema.plugin(conHistorial, { nombre: "Parte diario" });
 
 export default model("ParteDiario", ParteDiarioSchema);

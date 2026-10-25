@@ -47,8 +47,10 @@ import archivosRouter from "./archivos.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
+import registroRouter from "./registro.routes.js";
 import { verificarToken, soloRoles } from "../middleware/auth.js";
 import { escribirSi } from "../middleware/permisos.js";
+import { registrarCambios } from "../middleware/registro.js";
 
 const router = Router();
 
@@ -75,6 +77,10 @@ const ES_PUBLICO = [
 router.use((req, res, next) =>
   ES_PUBLICO.some((esPublico) => esPublico(req)) ? next() : verificarToken(req, res, next)
 );
+
+// Quién hizo qué y cuándo (25/10/2026): cada alta, cambio o baja, y cada
+// login. Va después del token para saber quién es.
+router.use(registrarCambios);
 
 /**
  * Quién escribe en cada recurso, según la tabla de Roles (Altas › Usuarios ›
@@ -199,5 +205,8 @@ router.use("/archivos", archivosRouter);
 
 // Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
 router.use("/roles", rolesRouter);
+
+// El registro de cambios: solo lo mira el superadmin.
+router.use("/registro", soloRoles("superadmin"), registroRouter);
 
 export default router;

@@ -1,5 +1,6 @@
 import { Schema, model } from "mongoose";
 import { CAMPOS_GASOIL } from "./GasoilDia.js";
+import { conHistorial } from "../services/historial.js";
 
 // Compras › Gasoil (20/10/2026): el gasoil que entra al tanque de un campo.
 // Con estos y los consumos de los partes se calcula el saldo de cada día.
@@ -24,5 +25,8 @@ const IngresoGasoilSchema = new Schema(
 );
 
 IngresoGasoilSchema.index({ campo: 1, fecha: -1 });
+
+// El antes y el después de cada cambio, en el registro (25/10/2026).
+IngresoGasoilSchema.plugin(conHistorial, { nombre: "Ingreso de gasoil" });
 
 export default model("IngresoGasoil", IngresoGasoilSchema);
