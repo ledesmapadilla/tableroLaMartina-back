@@ -1,11 +1,13 @@
 import { Schema, model } from "mongoose";
-import { CAMPOS_GASOIL } from "./GasoilDia.js";
+import { CAMPOS_GASOIL, campoTipo } from "./GasoilDia.js";
 
 // Compras › Gasoil (20/10/2026): el gasoil que entra al tanque de un campo.
 // Con estos y los consumos de los partes se calcula el saldo de cada día.
 const IngresoGasoilSchema = new Schema(
   {
     campo: { type: String, enum: CAMPOS_GASOIL, required: [true, "Falta el campo"] },
+    // A qué tanque entra (27/10/2026): en San Pablo, Común o Infinia.
+    tipo: campoTipo,
     fecha: { type: Date, required: [true, "Falta la fecha"] },
     // La razón social del padrón de proveedores, como texto.
     proveedor: { type: String, trim: true, default: "" },

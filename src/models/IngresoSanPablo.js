@@ -72,6 +72,10 @@ const IngresoSanPabloSchema = new Schema(
     // fecha, cuántas rotas, cuántas reparadas y observaciones. No mueve
     // escaleras; suma a los totales de rotas y reparadas.
     reparacion: { type: Boolean, default: false },
+    // En Escaleras: el estado inicial de la cosecha ("Estado inicial",
+    // 27/10/2026), una reparación con la fecha, cuántas había rotas y
+    // observaciones. Uno solo por cosecha.
+    estadoInicial: { type: Boolean, default: false },
     avisadoA: { type: String, trim: true, default: "" },
     // En Carros porta escaleras: la salida de escaleras que anota un retiro
     // (enlazado por `origen`). Se crea, se actualiza y se borra con el retiro.

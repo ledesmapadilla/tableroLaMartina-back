@@ -9,6 +9,10 @@ const PersonalSchema = new Schema(
     // tenerlos a mano, así que ninguno de los dos es obligatorio.
     dni: { type: String, trim: true, default: "" },
     legajo: { type: String, trim: true, default: "" },
+    // "Uso interno" (27/10/2026): no es una persona. Se elige en la carga de
+    // datos para los consumos de gasoil sin CC ni tarea. Hay uno solo y no se
+    // borra ni se renombra.
+    usoInterno: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

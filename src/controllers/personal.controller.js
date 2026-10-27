@@ -57,7 +57,11 @@ export const create = async (req, res) => {
     const repetido = await queSeRepite(req.body);
     if (repetido) return res.status(400).json({ error: repetido });
 
-    const persona = new Personal({ ...req.body, apellidoNombre: capitalizar(req.body.apellidoNombre) });
+    const persona = new Personal({
+      ...req.body,
+      apellidoNombre: capitalizar(req.body.apellidoNombre),
+      usoInterno: false,
+    });
     await persona.save();
     res.status(201).json(persona);
   } catch (error) {
@@ -65,14 +69,22 @@ export const create = async (req, res) => {
   }
 };
 
+// "Uso interno" no se borra ni se cambia: lo usa la carga de datos.
+const USO_INTERNO_FIJO = "Uso interno no se modifica ni se borra: es el de los consumos de gasoil sin persona";
+
 export const update = async (req, res) => {
   try {
+    if (await Personal.exists({ _id: req.params.id, usoInterno: true })) {
+      return res.status(400).json({ error: USO_INTERNO_FIJO });
+    }
     const repetido = await queSeRepite(req.body, req.params.id);
     if (repetido) return res.status(400).json({ error: repetido });
 
+    // La marca de uso interno no se pone ni se saca desde Altas.
+    const { usoInterno: _marca, ...datos } = req.body;
     const persona = await Personal.findByIdAndUpdate(
       req.params.id,
-      { ...req.body, apellidoNombre: capitalizar(req.body.apellidoNombre) },
+      { ...datos, apellidoNombre: capitalizar(req.body.apellidoNombre) },
       { new: true, runValidators: true }
     );
     if (!persona) return res.status(404).json({ error: "Persona no encontrada" });
@@ -84,6 +96,9 @@ export const update = async (req, res) => {
 
 export const remove = async (req, res) => {
   try {
+    if (await Personal.exists({ _id: req.params.id, usoInterno: true })) {
+      return res.status(400).json({ error: USO_INTERNO_FIJO });
+    }
     const persona = await Personal.findByIdAndDelete(req.params.id);
     if (!persona) return res.status(404).json({ error: "Persona no encontrada" });
     res.json({ message: "Persona eliminada" });

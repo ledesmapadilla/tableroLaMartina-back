@@ -8,6 +8,7 @@ import {
 } from "./horometrostractor.controller.js";
 import CentroCosto from "../models/CentroCosto.js";
 import Tarea from "../models/Tarea.js";
+import Personal from "../models/Personal.js";
 import {
   recalcularLote,
   recalcularLotes,
@@ -343,7 +344,7 @@ const RENGLON_DE_PAGO =
   "Este renglón lo arma el pago por lote terminado: se corrige editando la jornada que paga.";
 
 const RELACIONES = [
-  { path: "persona", select: "apellidoNombre dni legajo" },
+  { path: "persona", select: "apellidoNombre dni legajo usoInterno" },
   { path: "cc", select: "cc equipo descripcion" },
   { path: "tarea", select: "tarea unidad empresa" },
 ];
@@ -412,7 +413,7 @@ export const getAll = async (req, res) => {
         ? await consulta
             .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote lotes terminado repartido pagoDe provisorio")
             .populate([
-              { path: "persona", select: "apellidoNombre legajo" },
+              { path: "persona", select: "apellidoNombre legajo usoInterno" },
               { path: "cc", select: "cc" },
               { path: "tarea", select: "tarea unidad" },
             ])
@@ -569,6 +570,23 @@ const rechazoDelProvisorio = (body, ok) => {
   return null;
 };
 
+// "Uso interno" (27/10/2026): el renglón del padrón de personal que se elige
+// para un consumo de gasoil sin persona, CC ni tarea. Solo pide la fecha, el
+// combustible y las observaciones; no lleva cliente y nunca es provisorio.
+const esDeUsoInterno = async (persona) =>
+  mongoose.isValidObjectId(persona) && Boolean(await Personal.exists({ _id: persona, usoInterno: true }));
+
+const rechazoDeUsoInterno = (body, ok) => {
+  const falta = [];
+  if (!body.fecha) falta.push("la fecha");
+  const comb = body.combustible;
+  if (comb === "" || comb === null || comb === undefined || isNaN(Number(comb))) falta.push("el combustible");
+  if (!String(body.observacion || "").trim()) falta.push("las observaciones");
+  if (falta.length) return { status: 400, cuerpo: { error: `Falta ${falta.join(", ")}` } };
+  if (!ok) return { status: 400, cuerpo: { error: CC_INEXISTENTE } };
+  return null;
+};
+
 // "AAAA-MM-DD" de una fecha guardada o de la que llega en el cuerpo.
 const diaDe = (fecha) =>
   fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha || "").slice(0, 10);
@@ -577,21 +595,29 @@ export const create = async (req, res) => {
   try {
     // Las lecturas son independientes: van juntas para no pagar varias idas y
     // vueltas al cluster antes de guardar.
-    const [tareaDelPadron, { ok, centro, conTractor }, pendiente, cliente] = await Promise.all([
+    const [tareaDelPadron, { ok, centro, conTractor }, pendiente, cliente, usoInterno] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       diaProvisorioPendiente(req.body),
       clienteDelPadron(req.body.cliente),
+      esDeUsoInterno(req.body.persona),
     ]);
 
+    if (usoInterno) req.body.provisorio = false;
     const provisorio = esProvisorio(req.body);
-    const rechazo = provisorio
-      ? rechazoDelProvisorio(req.body, ok)
-      : await rechazoDelParte(req.body, { tareaDelPadron, ok });
+    const rechazo = usoInterno
+      ? rechazoDeUsoInterno(req.body, ok)
+      : provisorio
+        ? rechazoDelProvisorio(req.body, ok)
+        : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
     // El cliente tiene que estar en el padrón; se guarda escrito como allá.
-    if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
-    req.body.cliente = cliente;
+    // Uso interno no lleva.
+    if (usoInterno) req.body.cliente = "";
+    else {
+      if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
+      req.body.cliente = cliente;
+    }
     // Con un día en provisorio no se le carga otro, sea provisorio o completo.
     if (pendiente) return res.status(409).json(pendiente);
 
@@ -636,7 +662,7 @@ export const update = async (req, res) => {
     // Las lecturas son independientes y van juntas. `anterior` es cómo estaba
     // el parte: si cambió de lote o de tarea, el grupo que deja atrás también
     // hay que rehacerlo.
-    const [tareaDelPadron, { ok, centro, conTractor }, anterior, pendiente, cliente] = await Promise.all([
+    const [tareaDelPadron, { ok, centro, conTractor }, anterior, pendiente, cliente, usoInterno] = await Promise.all([
       buscarTareaDelParte(req.body),
       buscarCentroDelParte(req.body.cc, req.body),
       ParteDiario.findById(req.params.id)
@@ -644,16 +670,23 @@ export const update = async (req, res) => {
         .lean(),
       diaProvisorioPendiente(req.body, req.params.id),
       clienteDelPadron(req.body.cliente),
+      esDeUsoInterno(req.body.persona),
     ]);
     if (anterior?.pagoDe) return res.status(400).json({ error: RENGLON_DE_PAGO });
 
+    if (usoInterno) req.body.provisorio = false;
     const provisorio = esProvisorio(req.body);
-    const rechazo = provisorio
-      ? rechazoDelProvisorio(req.body, ok)
-      : await rechazoDelParte(req.body, { tareaDelPadron, ok });
+    const rechazo = usoInterno
+      ? rechazoDeUsoInterno(req.body, ok)
+      : provisorio
+        ? rechazoDelProvisorio(req.body, ok)
+        : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
-    if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
-    req.body.cliente = cliente;
+    if (usoInterno) req.body.cliente = "";
+    else {
+      if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
+      req.body.cliente = cliente;
+    }
 
     // Con un día en provisorio no se le carga otro. Corregir un parte completo
     // de otro día sin cambiarle la fecha ni la persona no es cargar un día: eso

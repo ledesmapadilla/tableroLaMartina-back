@@ -1,5 +1,5 @@
 import { Schema, model } from "mongoose";
-import { CAMPOS_GASOIL } from "./GasoilDia.js";
+import { CAMPOS_GASOIL, campoTipo } from "./GasoilDia.js";
 
 // Compras › Gasoil › Auditorías (20/10/2026): alguien de Compras pide una
 // auditoría y el encargado de taller de cada campo anota cuántos litros tiene
@@ -20,6 +20,9 @@ const FotoSchema = new Schema(
 const CargaSchema = new Schema(
   {
     campo: { type: String, enum: CAMPOS_GASOIL, required: true },
+    // El tanque (27/10/2026): San Pablo lleva una carga del Común y otra del
+    // Infinia.
+    tipo: campoTipo,
     // null mientras el encargado no la cargó.
     litros: { type: Number, min: [0, "Los litros no pueden ser negativos"], default: null },
     foto: { type: FotoSchema, default: null },

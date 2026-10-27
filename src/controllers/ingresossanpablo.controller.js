@@ -117,7 +117,32 @@ const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", 
 // Lo que se carga en "Reparación escaleras" (25/10/2026).
 const DE_REPARACION = ["fechaIngreso", "escalerasRotas", "escalerasReparadas", "observaciones"];
 const controlarReparacion = ({ escalerasRotas, escalerasReparadas }) =>
-  (escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0 ? null : "Poné cuántas rotas o cuántas reparadas";
+  (escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0 ? null : "Poné cuántas escaleras se repararon";
+
+// Lo que se carga en "Estado inicial" (27/10/2026): va como una reparación
+// marcada, así suma a las rotas sin mover escaleras.
+const DE_ESTADO_INICIAL = ["fechaIngreso", "escalerasRotas", "observaciones"];
+const controlarEstadoInicial = ({ escalerasRotas }) =>
+  escalerasRotas == null ? "Poné cuántas escaleras rotas hay" : null;
+
+// En la cosecha no puede haber más reparadas que rotas (27/10/2026): cuenta
+// los ingresos, las reparaciones y el estado inicial, con `fila` en lugar del
+// movimiento que se edita (`ignorarId`). Los retiros y las bajas no cuentan.
+const controlarReparadas = async (cosecha, fila, ignorarId = null) => {
+  const filas = await IngresoSanPablo.find({
+    cosecha,
+    tipo: ESCALERAS,
+    retiro: { $ne: true },
+    baja: { $ne: true },
+    _id: { $ne: ignorarId },
+  }).lean();
+  const total = (campo) => [...filas, fila].reduce((t, f) => t + (f[campo] || 0), 0);
+  const rotas = total("escalerasRotas");
+  const reparadas = total("escalerasReparadas");
+  return reparadas > rotas
+    ? `Las reparadas (${reparadas}) no pueden ser más que las rotas (${rotas}) en la cosecha ${cosecha}`
+    : null;
+};
 
 // Una baja necesita cantidad, motivo, quién las desecha y a quién se avisó.
 const controlarBaja = ({ cantidadEscaleras, motivo, ingresadoPor, avisadoA }) => {
@@ -223,10 +248,31 @@ export const create = async (req, res) => {
       const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, baja: true, cc: null });
       return res.status(201).json(ingreso);
     }
+    if (req.body.tipo === ESCALERAS && req.body.estadoInicial) {
+      const datos = soloCampos(datosDe(req.body), DE_ESTADO_INICIAL);
+      const falta = controlarEstadoInicial(datos);
+      if (falta) return res.status(400).json({ error: falta });
+      if (await IngresoSanPablo.exists({ cosecha, tipo: ESCALERAS, estadoInicial: true })) {
+        return res.status(400).json({ error: `La cosecha ${cosecha} ya tiene estado inicial` });
+      }
+      const deMas = await controlarReparadas(cosecha, datos);
+      if (deMas) return res.status(400).json({ error: deMas });
+      const ingreso = await IngresoSanPablo.create({
+        ...datos,
+        cosecha,
+        tipo: ESCALERAS,
+        reparacion: true,
+        estadoInicial: true,
+        cc: null,
+      });
+      return res.status(201).json(ingreso);
+    }
     if (req.body.tipo === ESCALERAS && req.body.reparacion) {
       const datos = soloCampos(datosDe(req.body), DE_REPARACION);
       const falta = controlarReparacion(datos);
       if (falta) return res.status(400).json({ error: falta });
+      const deMas = await controlarReparadas(cosecha, datos);
+      if (deMas) return res.status(400).json({ error: deMas });
       const ingreso = await IngresoSanPablo.create({ ...datos, cosecha, tipo: ESCALERAS, reparacion: true, cc: null });
       return res.status(201).json(ingreso);
     }
@@ -309,10 +355,18 @@ export const update = async (req, res) => {
     }
 
     let datos = datosDe(req.body);
-    if (actual.tipo === ESCALERAS && actual.reparacion) {
+    if (actual.tipo === ESCALERAS && actual.estadoInicial) {
+      datos = soloCampos(datos, DE_ESTADO_INICIAL);
+      const falta = controlarEstadoInicial({ ...actual.toObject(), ...datos });
+      if (falta) return res.status(400).json({ error: falta });
+      const deMas = await controlarReparadas(actual.cosecha, { ...actual.toObject(), ...datos }, actual._id);
+      if (deMas) return res.status(400).json({ error: deMas });
+    } else if (actual.tipo === ESCALERAS && actual.reparacion) {
       datos = soloCampos(datos, DE_REPARACION);
       const falta = controlarReparacion({ ...actual.toObject(), ...datos });
       if (falta) return res.status(400).json({ error: falta });
+      const deMas = await controlarReparadas(actual.cosecha, { ...actual.toObject(), ...datos }, actual._id);
+      if (deMas) return res.status(400).json({ error: deMas });
     } else if (actual.tipo === ESCALERAS && actual.baja) {
       datos = soloCampos(datos, DE_BAJA);
       const falta = controlarBaja({ ...actual.toObject(), ...datos });

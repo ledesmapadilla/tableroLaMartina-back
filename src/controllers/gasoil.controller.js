@@ -1,12 +1,19 @@
-import GasoilDia, { CAMPOS_GASOIL, ESTABLECIMIENTO_DE_CAMPO } from "../models/GasoilDia.js";
+import GasoilDia, {
+  CAMPOS_GASOIL,
+  ESTABLECIMIENTO_DE_CAMPO,
+  TIPOS_DE_CAMPO,
+  TANQUES_GASOIL,
+  CC_INFINIA,
+} from "../models/GasoilDia.js";
 import IngresoGasoil from "../models/IngresoGasoil.js";
 import AuditoriaGasoil from "../models/AuditoriaGasoil.js";
 import StockInicialGasoil from "../models/StockInicialGasoil.js";
 import ParteDiario from "../models/ParteDiario.js";
+import CentroCosto from "../models/CentroCosto.js";
+import { puedeRol } from "../permisos/resolver.js";
 // Para el populate del detalle: que estén registrados aunque nadie más los
 // haya importado.
 import "../models/Personal.js";
-import "../models/CentroCosto.js";
 import "../models/Tarea.js";
 
 // Un número vacío queda sin cargar (null) y no como cero: un cero dice que se
@@ -23,6 +30,36 @@ const campoValido = (campo, res) => {
   if (CAMPOS_GASOIL.includes(campo)) return true;
   res.status(400).json({ error: "Campo desconocido" });
   return false;
+};
+
+// ── Tanques (27/10/2026) ──
+// Un tanque es un campo + un tipo de gasoil: San Pablo tiene Común e Infinia.
+// Lo cargado antes no tiene tipo y es Común.
+const tipoDe = (x) => x?.tipo || "comun";
+// Para buscar por tipo: el Común también encuentra lo que no lo tiene.
+const filtroTipo = (tipo) => (tipo === "comun" ? { $in: ["comun", null] } : tipo);
+
+// El tipo pedido (vacío es Común), si existe en el campo; si no, responde 400
+// y devuelve null.
+const tipoValido = (campo, tipo, res) => {
+  const t = tipo || "comun";
+  if (TIPOS_DE_CAMPO[campo]?.includes(t)) return t;
+  res.status(400).json({ error: "Tipo de gasoil desconocido en este campo" });
+  return null;
+};
+
+// Los partes que consumen de un tanque. En un campo con Infinia, el Infinia
+// es solo lo cargado en el CC de la retro y el Común todo lo demás.
+const filtroConsumos = async (campo, tipo) => {
+  const filtro = {
+    establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
+    $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
+  };
+  if (!TIPOS_DE_CAMPO[campo].includes("infinia")) return filtro;
+  const retro = await CentroCosto.findOne({ cc: CC_INFINIA }).select("_id").lean();
+  if (tipo === "infinia") filtro.cc = retro ? retro._id : { $in: [] };
+  else if (retro) filtro.cc = { $ne: retro._id };
+  return filtro;
 };
 
 // Los encargados de taller ven solo los ingresos, no los consumos
@@ -53,16 +90,11 @@ const esSuCampo = (req, res, campo) => {
   return false;
 };
 
-// El consumo de los partes de un campo, sumado por día:
+// El consumo de los partes de un tanque, sumado por día:
 // [{ _id: "AAAA-MM-DD", combustible, combTurbo }].
-const consumosPorDia = (campo) =>
+const consumosPorDia = async (campo, tipo) =>
   ParteDiario.aggregate([
-    {
-      $match: {
-        establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
-        $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
-      },
-    },
+    { $match: await filtroConsumos(campo, tipo) },
     {
       $group: {
         _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
@@ -72,10 +104,10 @@ const consumosPorDia = (campo) =>
     },
   ]);
 
-// Los ingresos de un campo, sumados por día: [{ _id: "AAAA-MM-DD", litros }].
-const ingresosPorDia = (campo) =>
+// Los ingresos de un tanque, sumados por día: [{ _id: "AAAA-MM-DD", litros }].
+const ingresosPorDia = (campo, tipo) =>
   IngresoGasoil.aggregate([
-    { $match: { campo } },
+    { $match: { campo, tipo: filtroTipo(tipo) } },
     {
       $group: {
         _id: { $dateToString: { format: "%Y-%m-%d", date: "$fecha", timezone: "UTC" } },
@@ -85,9 +117,9 @@ const ingresosPorDia = (campo) =>
   ]);
 
 /**
- * La planilla de consumos de un campo, del día más nuevo al más viejo. Un
- * renglón por día que tenga combustible en los partes, un ingreso o
- * observaciones.
+ * La planilla de consumos de un tanque (?campo=&tipo=), del día más nuevo al
+ * más viejo. Un renglón por día que tenga combustible en los partes, un
+ * ingreso o observaciones.
  *
  * - El consumo es lo de los partes de Producción de ese campo (los datos de
  *   certificación): combustible + combTurbo de todas las jornadas del día.
@@ -100,12 +132,14 @@ export const getAll = async (req, res) => {
     if (!veConsumos(req, res)) return;
     const { campo } = req.query;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
 
     const [porDia, ingresos, cargados, stockInicial, auditorias] = await Promise.all([
-      consumosPorDia(campo),
-      ingresosPorDia(campo),
-      GasoilDia.find({ campo }).lean(),
-      StockInicialGasoil.findOne({ campo }).select("fecha litros").lean(),
+      consumosPorDia(campo, tipo),
+      ingresosPorDia(campo, tipo),
+      GasoilDia.find({ campo, tipo: filtroTipo(tipo) }).lean(),
+      StockInicialGasoil.findOne({ campo, tipo: filtroTipo(tipo) }).select("fecha litros").lean(),
       AuditoriaGasoil.find({ "cargas.campo": campo }).select("cargas").lean(),
     ]);
 
@@ -145,7 +179,7 @@ export const getAll = async (req, res) => {
     // queda la última medición.
     const momento = (c) => new Date(c.corte || c.fechaCarga);
     const medidas = auditorias
-      .map((a) => a.cargas.find((c) => c.campo === campo))
+      .map((a) => a.cargas.find((c) => c.campo === campo && tipoDe(c) === tipo))
       .filter((c) => c && c.litros !== null && c.litros !== undefined && (c.corte || c.fechaCarga))
       .sort((a, b) => momento(a) - momento(b));
     for (const c of medidas) fila(diaArgentina(momento(c))).auditoria = c.litros;
@@ -173,13 +207,11 @@ export const getDetalle = async (req, res) => {
     if (!veConsumos(req, res)) return;
     const { campo, fecha } = req.query;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
     if (!fecha) return res.status(400).json({ error: "Falta la fecha" });
 
-    const partes = await ParteDiario.find({
-      establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
-      fecha: dia(fecha),
-      $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
-    })
+    const partes = await ParteDiario.find({ ...(await filtroConsumos(campo, tipo)), fecha: dia(fecha) })
       .select("persona cc tarea turbo combustible combTurbo provisorio")
       .populate("persona", "apellidoNombre")
       .populate("cc", "cc descripcion")
@@ -212,10 +244,12 @@ export const guardar = async (req, res) => {
     if (!veConsumos(req, res)) return;
     const { campo, fecha } = req.body;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.body.tipo, res);
+    if (!tipo) return;
     if (!fecha) return res.status(400).json({ error: "Falta la fecha" });
 
     const observaciones = texto(req.body.observaciones);
-    const filtro = { campo, fecha: dia(fecha) };
+    const filtro = { campo, tipo: filtroTipo(tipo), fecha: dia(fecha) };
 
     if (!observaciones) {
       await GasoilDia.deleteOne(filtro);
@@ -223,7 +257,7 @@ export const guardar = async (req, res) => {
     }
     const doc = await GasoilDia.findOneAndUpdate(
       filtro,
-      { $set: { observaciones } },
+      { $set: { observaciones, tipo } },
       { returnDocument: "after", upsert: true, runValidators: true }
     );
     res.json(doc);
@@ -255,15 +289,22 @@ const datosIngreso = (body) => ({
   observaciones: texto(body.observaciones),
 });
 
-// Los ingresos de un campo, del más nuevo al más viejo. Los filtros van en
-// la pantalla: son pocos y las opciones salen de todos.
+// Los ingresos de un campo, del más nuevo al más viejo; con ?tipo=, solo los
+// de ese tanque. Los filtros van en la pantalla: son pocos y las opciones
+// salen de todos.
 export const getIngresos = async (req, res) => {
   try {
     const { campo } = req.query;
     if (!campoValido(campo, res)) return;
     if (!esSuCampo(req, res, campo)) return;
-    const lista = await IngresoGasoil.find({ campo }).sort({ fecha: -1, createdAt: -1 }).lean();
-    res.json(lista);
+    const filtro = { campo };
+    if (req.query.tipo) {
+      const tipo = tipoValido(campo, req.query.tipo, res);
+      if (!tipo) return;
+      filtro.tipo = filtroTipo(tipo);
+    }
+    const lista = await IngresoGasoil.find(filtro).sort({ fecha: -1, createdAt: -1 }).lean();
+    res.json(lista.map((i) => ({ ...i, tipo: tipoDe(i) })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -273,25 +314,27 @@ export const crearIngreso = async (req, res) => {
   try {
     if (!campoValido(req.body.campo, res)) return;
     if (!esSuCampo(req, res, req.body.campo)) return;
-    const ingreso = await IngresoGasoil.create({ campo: req.body.campo, ...datosIngreso(req.body) });
+    const tipo = tipoValido(req.body.campo, req.body.tipo, res);
+    if (!tipo) return;
+    const ingreso = await IngresoGasoil.create({ campo: req.body.campo, tipo, ...datosIngreso(req.body) });
     res.status(201).json(ingreso);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
 
-// Corregir un ingreso ya cargado es solo del comprador, gerencia y el
-// superadmin (20/10/2026), además del "Editar" de Gasoil. El analista no.
-// Copia de ROLES_EDITAR_INGRESO en TableroFront/src/components/compras/camposGasoil.js.
-const ROLES_EDITAR_INGRESO = ["comprador", "gerente", "superadmin"];
-
-// El campo no se cambia: lo cargado en el campo equivocado se borra.
+// Corregir un ingreso ya cargado: el que tiene "Editar" de Gasoil (27/10/2026,
+// antes solo comprador, gerencia y el superadmin); el encargado, solo los de
+// su taller. El campo no se cambia: lo cargado en el campo equivocado se borra.
+// El tipo sí (27/10/2026), entre los del campo.
 export const editarIngreso = async (req, res) => {
   try {
-    if (!ROLES_EDITAR_INGRESO.includes(req.usuario?.rol)) {
-      return res.status(403).json({ error: "Tu rol no puede editar ingresos de gasoil" });
-    }
-    const ingreso = await IngresoGasoil.findByIdAndUpdate(req.params.id, datosIngreso(req.body), {
+    const previo = await IngresoGasoil.findById(req.params.id).select("campo tipo").lean();
+    if (!previo) return res.status(404).json({ error: "Ingreso no encontrado" });
+    if (!esSuCampo(req, res, previo.campo)) return;
+    const tipo = tipoValido(previo.campo, req.body.tipo || tipoDe(previo), res);
+    if (!tipo) return;
+    const ingreso = await IngresoGasoil.findByIdAndUpdate(req.params.id, { ...datosIngreso(req.body), tipo }, {
       returnDocument: "after",
       runValidators: true,
     });
@@ -345,50 +388,59 @@ const redondear = (n) => Math.round(n * 100) / 100;
  *   día. El encargado se ocupa de que antes de la foto esté todo cargado.
  *   El momento de un consumo es su `combustibleEn` (o createdAt en los partes
  *   de antes) y el de un ingreso, su createdAt.
- * - El stock inicial se carga después de medir, así que ahí corta por fecha:
- *   entran los consumos e ingresos con fecha desde su día, él incluido.
- * - Las cargadas antes del día del stock inicial, o sin stock inicial, no
- *   tienen resultado.
+ * - El stock inicial es un punto de partida (27/10/2026): lo que hay en el
+ *   tanque en el momento en que se carga (`momento`). Lo de antes no cuenta,
+ *   aunque sea del mismo día; desde ahí corta igual que una auditoría.
+ * - Las cargadas antes del stock inicial, o sin stock inicial, no tienen
+ *   resultado.
  *
  * Devuelve un Map: id de la auditoría → el detalle de la cuenta. `desde` es
- * el día del stock inicial ("AAAA-MM-DD") o el corte de la anterior (ISO), y
- * `hasta` el corte de esta (ISO).
+ * el momento del stock inicial o el corte de la anterior, y `hasta` el corte
+ * de esta (ISO).
  */
-const resultadosAuditorias = async (campo, auditorias) => {
-  const stockInicial = await StockInicialGasoil.findOne({ campo }).select("fecha litros").lean();
+const resultadosAuditorias = async (campo, tipo, auditorias) => {
+  const stockInicial = await StockInicialGasoil.findOne({ campo, tipo: filtroTipo(tipo) })
+    .select("fecha litros momento updatedAt")
+    .lean();
   const resultados = new Map();
   if (!stockInicial) return resultados;
+  // Los cargados antes del 27/10/2026 no tienen momento: el último cambio.
+  const momentoStock = new Date(stockInicial.momento ?? stockInicial.updatedAt);
 
-  // Uno por uno, con su momento: desde el día del stock inicial.
+  // Uno por uno, con su momento: desde el día del stock inicial. Cada tanque
+  // con sus consumos (27/10/2026: el Infinia, solo la retro).
   const [partes, ingresos] = await Promise.all([
-    ParteDiario.find({
-      establecimiento: ESTABLECIMIENTO_DE_CAMPO[campo],
-      fecha: { $gte: stockInicial.fecha },
-      $or: [{ combustible: { $ne: null } }, { combTurbo: { $ne: null } }],
-    })
+    ParteDiario.find({ ...(await filtroConsumos(campo, tipo)), fecha: { $gte: stockInicial.fecha } })
       .select("combustible combTurbo combustibleEn createdAt")
       .lean(),
-    IngresoGasoil.find({ campo, fecha: { $gte: stockInicial.fecha } }).select("litros createdAt").lean(),
+    IngresoGasoil.find({ campo, tipo: filtroTipo(tipo), fecha: { $gte: stockInicial.fecha } })
+      .select("litros createdAt")
+      .lean(),
   ]);
   const consumos = partes.map((p) => ({
     momento: new Date(p.combustibleEn ?? p.createdAt).getTime(),
     litros: (p.combustible || 0) + (p.combTurbo || 0),
   }));
   const entradas = ingresos.map((i) => ({ momento: new Date(i.createdAt).getTime(), litros: i.litros || 0 }));
-  // Lo escrito después de `desde` (null: sin límite) y hasta `hasta`, incluido.
+  // Lo escrito después de `desde` y hasta `hasta`, incluido.
   const suma = (lista, desde, hasta) =>
-    lista.filter((x) => (desde === null || x.momento > desde) && x.momento <= hasta).reduce((t, x) => t + x.litros, 0);
+    lista.filter((x) => x.momento > desde && x.momento <= hasta).reduce((t, x) => t + x.litros, 0);
 
-  // Las cargadas de este campo, de la más vieja a la más nueva por su corte.
-  const diaStock = claveDia(stockInicial.fecha);
+  // Las cargadas de este campo después del stock inicial, de la más vieja a
+  // la más nueva por su corte.
   const cargadas = auditorias
-    .map((a) => ({ id: String(a._id), carga: a.cargas.find((c) => c.campo === campo) }))
+    .map((a) => ({ id: String(a._id), carga: a.cargas.find((c) => c.campo === campo && tipoDe(c) === tipo) }))
     .filter(({ carga }) => carga && carga.litros !== null && carga.litros !== undefined && (carga.corte || carga.fechaCarga))
     .map(({ id, carga }) => ({ id, litros: carga.litros, corte: new Date(carga.corte || carga.fechaCarga) }))
-    .filter((a) => diaArgentina(a.corte) >= diaStock)
+    .filter((a) => a.corte > momentoStock)
     .sort((a, b) => a.corte - b.corte);
 
-  let partida = { litros: stockInicial.litros, corte: null, desde: diaStock, origen: "stock inicial" };
+  let partida = {
+    litros: stockInicial.litros,
+    corte: momentoStock.getTime(),
+    desde: momentoStock.toISOString(),
+    origen: "stock inicial",
+  };
   for (const a of cargadas) {
     const ingresado = suma(entradas, partida.corte, a.corte.getTime());
     const consumido = suma(consumos, partida.corte, a.corte.getTime());
@@ -413,19 +465,31 @@ export const getAuditorias = async (req, res) => {
   try {
     const lista = await AuditoriaGasoil.find().sort({ fechaPedido: -1 }).lean();
     // El resultado (sobra o falta), con el detalle de la cuenta para el
-    // resumen. No lo ve el encargado de taller.
-    const conResultado = req.usuario?.rol !== "solicitante";
-    const porCampo = conResultado
+    // resumen. Lo ve el que tiene Ver y Editar en Gasoil (27/10/2026), sea
+    // cual sea su rol.
+    const rol = req.usuario?.rol;
+    const conResultado =
+      (await puedeRol(rol, "compras.gasoil", "ver")) && (await puedeRol(rol, "compras.gasoil", "editar"));
+    // Un resultado por tanque (27/10/2026): "campo-tipo" → Map.
+    const porTanque = conResultado
       ? Object.fromEntries(
-          await Promise.all(CAMPOS_GASOIL.map(async (c) => [c, await resultadosAuditorias(c, lista)]))
+          await Promise.all(
+            TANQUES_GASOIL.map(async ({ campo, tipo }) => [
+              `${campo}-${tipo}`,
+              await resultadosAuditorias(campo, tipo, lista),
+            ])
+          )
         )
       : {};
     res.json(
       lista.map((a) => ({
         ...a,
-        cargas: cargasVisibles(req, a).map((c) =>
-          conResultado ? { ...c, resultado: porCampo[c.campo].get(String(a._id)) ?? null } : c
-        ),
+        cargas: cargasVisibles(req, a).map((c) => {
+          const carga = { ...c, tipo: tipoDe(c) };
+          return conResultado
+            ? { ...carga, resultado: porTanque[`${c.campo}-${carga.tipo}`]?.get(String(a._id)) ?? null }
+            : carga;
+        }),
       }))
     );
   } catch (error) {
@@ -433,8 +497,9 @@ export const getAuditorias = async (req, res) => {
   }
 };
 
-// Pedir una auditoría: la fecha es la de hoy y nacen las dos cargas vacías.
-// El encargado de taller no pide: carga.
+// Pedir una auditoría: la fecha es la de hoy y nace una carga vacía por
+// tanque (27/10/2026: San Pablo, Común e Infinia). El encargado de taller no
+// pide: carga.
 export const pedirAuditoria = async (req, res) => {
   try {
     if (req.usuario?.rol === "solicitante") {
@@ -443,7 +508,7 @@ export const pedirAuditoria = async (req, res) => {
     const auditoria = await AuditoriaGasoil.create({
       fechaPedido: new Date(),
       pedidoPor: req.usuario?.nombre || req.usuario?.usuario || "",
-      cargas: CAMPOS_GASOIL.map((campo) => ({ campo })),
+      cargas: TANQUES_GASOIL.map(({ campo, tipo }) => ({ campo, tipo })),
     });
     res.status(201).json(auditoria);
   } catch (error) {
@@ -451,13 +516,28 @@ export const pedirAuditoria = async (req, res) => {
   }
 };
 
-// Cargar (o corregir) los litros y la foto de un campo. Lo hace el encargado
-// de ese taller; el superadmin también, para probar o corregir.
+// La carga de un tanque dentro de una auditoría, para el update posicional.
+const filtroCarga = (id, campo, tipo) => ({ _id: id, cargas: { $elemMatch: { campo, tipo: filtroTipo(tipo) } } });
+
+// Cargar (o corregir) los litros y la foto de un tanque (?tipo=, vacío es
+// Común). La primera vez lo hace el encargado de ese taller (el superadmin
+// también, para probar); ya cargada, la corrige solo el comprador o Nacho
+// (27/10/2026).
 export const cargarAuditoria = async (req, res) => {
   try {
     const { id, campo } = req.params;
     if (!campoValido(campo, res)) return;
-    if (!["solicitante", "superadmin"].includes(req.usuario?.rol)) {
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
+
+    const previa = await AuditoriaGasoil.findOne(filtroCarga(id, campo, tipo)).select("cargas").lean();
+    if (!previa) return res.status(404).json({ error: "Auditoría no encontrada" });
+    const cargaPrevia = previa.cargas.find((c) => c.campo === campo && tipoDe(c) === tipo);
+    const yaCargada = cargaPrevia?.litros !== null && cargaPrevia?.litros !== undefined;
+    if (yaCargada && !corrigeStock(req.usuario)) {
+      return res.status(403).json({ error: "Los litros ya cargados los corrige solo el comprador" });
+    }
+    if (!yaCargada && !["solicitante", "superadmin"].includes(req.usuario?.rol)) {
       return res.status(403).json({ error: "La auditoría la carga el encargado de taller" });
     }
     if (!esSuCampo(req, res, campo)) return;
@@ -471,12 +551,11 @@ export const cargarAuditoria = async (req, res) => {
 
     // El corte se fija la primera vez (21/10/2026): una corrección no lo corre.
     const ahora = new Date();
-    const previa = await AuditoriaGasoil.findOne({ _id: id, "cargas.campo": campo }).select("cargas").lean();
-    const cargaPrevia = previa?.cargas.find((c) => c.campo === campo);
     const auditoria = await AuditoriaGasoil.findOneAndUpdate(
-      { _id: id, "cargas.campo": campo },
+      filtroCarga(id, campo, tipo),
       {
         $set: {
+          "cargas.$.tipo": tipo,
           "cargas.$.litros": litros,
           "cargas.$.foto": { url: foto.url, nombre: foto.nombre || "", publicId: foto.publicId || "", tipo: foto.tipo || "image" },
           "cargas.$.cargadoPor": req.usuario?.nombre || req.usuario?.usuario || "",
@@ -515,6 +594,8 @@ export const fotoAuditoria = async (req, res) => {
   try {
     const { id, campo } = req.params;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
     if (!["solicitante", "superadmin"].includes(req.usuario?.rol)) {
       return res.status(403).json({ error: "La auditoría la carga el encargado de taller" });
     }
@@ -523,7 +604,7 @@ export const fotoAuditoria = async (req, res) => {
     const f = req.body.foto;
     const foto = f?.url ? { url: f.url, nombre: f.nombre || "", publicId: f.publicId || "", tipo: f.tipo || "image" } : null;
     const auditoria = await AuditoriaGasoil.findOneAndUpdate(
-      { _id: id, "cargas.campo": campo },
+      filtroCarga(id, campo, tipo),
       { $set: { "cargas.$.foto": foto } },
       { returnDocument: "after" }
     ).lean();
@@ -556,32 +637,46 @@ export const getAuditoriasPendientes = async (req, res) => {
 // El stock con el que arranca el tanque de cada campo, arriba de las
 // auditorías: litros, fecha y foto del nivel. Uno por campo.
 
-// Los dos campos, con lo cargado o null. El encargado ve solo el suyo.
+// Los tanques (27/10/2026: San Pablo, Común e Infinia), con lo cargado o null.
+// El encargado ve solo los de su campo.
 export const getStockInicial = async (req, res) => {
   try {
     const cargados = await StockInicialGasoil.find().lean();
-    const campos =
-      req.usuario?.rol === "solicitante" ? CAMPOS_GASOIL.filter((c) => c === tallerDe(req.usuario)) : CAMPOS_GASOIL;
-    res.json(campos.map((campo) => ({ campo, stock: cargados.find((s) => s.campo === campo) || null })));
+    const tanques =
+      req.usuario?.rol === "solicitante"
+        ? TANQUES_GASOIL.filter((t) => t.campo === tallerDe(req.usuario))
+        : TANQUES_GASOIL;
+    res.json(
+      tanques.map(({ campo, tipo }) => ({
+        campo,
+        tipo,
+        stock: cargados.find((s) => s.campo === campo && tipoDe(s) === tipo) || null,
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// Quien puede corregir un stock inicial ya cargado (21/10/2026): solo Nacho,
-// el superadmin de usuario "nacho". Copia de puedeCorregirStock en
+// Quien puede corregir un stock ya cargado, el inicial y los litros de una
+// auditoría (27/10/2026): solo el comprador, y Nacho (el superadmin de usuario
+// "nacho"), que puede todo. Copia de puedeCorregirStock en
 // TableroFront/src/components/compras/GasoilAuditorias.jsx.
-const corrigeStock = (usuario) => usuario?.rol === "superadmin" && usuario?.usuario === "nacho";
+const corrigeStock = (usuario) =>
+  usuario?.rol === "comprador" || (usuario?.rol === "superadmin" && usuario?.usuario === "nacho");
 
 // Cargar el stock inicial de un campo (crea o pisa). Una vez cargado no se
-// corrige (21/10/2026), salvo Nacho; los demás solo cambian la foto. El
+// corrige (21/10/2026), salvo el comprador y Nacho (corrigeStock); los demás
+// solo cambian la foto. El
 // encargado, solo el de su taller.
 export const guardarStockInicial = async (req, res) => {
   try {
     const { campo } = req.params;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
     if (!esSuCampo(req, res, campo)) return;
-    if (!corrigeStock(req.usuario) && (await StockInicialGasoil.exists({ campo }))) {
+    if (!corrigeStock(req.usuario) && (await StockInicialGasoil.exists({ campo, tipo: filtroTipo(tipo) }))) {
       return res.status(409).json({ error: "El stock inicial ya está cargado y no se corrige" });
     }
 
@@ -594,13 +689,15 @@ export const guardarStockInicial = async (req, res) => {
     if (!f?.url) return res.status(400).json({ error: "Falta la foto del nivel" });
 
     const stock = await StockInicialGasoil.findOneAndUpdate(
-      { campo },
+      { campo, tipo: filtroTipo(tipo) },
       {
         $set: {
+          tipo,
           fecha: dia(req.body.fecha),
           litros,
           foto: { url: f.url, nombre: f.nombre || "", publicId: f.publicId || "", tipo: f.tipo || "image" },
           cargadoPor: req.usuario?.nombre || req.usuario?.usuario || "",
+          momento: new Date(),
         },
       },
       { returnDocument: "after", upsert: true, runValidators: true }
@@ -618,10 +715,16 @@ export const fotoStockInicial = async (req, res) => {
   try {
     const { campo } = req.params;
     if (!campoValido(campo, res)) return;
+    const tipo = tipoValido(campo, req.query.tipo, res);
+    if (!tipo) return;
     if (!esSuCampo(req, res, campo)) return;
     const f = req.body.foto;
     const foto = f?.url ? { url: f.url, nombre: f.nombre || "", publicId: f.publicId || "", tipo: f.tipo || "image" } : null;
-    const stock = await StockInicialGasoil.findOneAndUpdate({ campo }, { $set: { foto } }, { returnDocument: "after" }).lean();
+    const stock = await StockInicialGasoil.findOneAndUpdate(
+      { campo, tipo: filtroTipo(tipo) },
+      { $set: { foto } },
+      { returnDocument: "after" }
+    ).lean();
     if (!stock) return res.status(404).json({ error: "Stock inicial no encontrado" });
     res.json(stock);
   } catch (error) {
