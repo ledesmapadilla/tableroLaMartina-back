@@ -68,9 +68,29 @@ export const paresDeVisita = (visita) => {
 
 // ── Cambios de horómetro ──────────────────────────────────────────────
 
+// Un solo cambio por día (28/10/2026): el cartel de "el horómetro retrocede"
+// llegó a registrar el mismo cambio tres veces seguidas (el 250, el 22/10).
+// Vale el primero de cada día, y el número y la base se vuelven a contar con
+// los que quedan. Recibe los cambios de un tractor ya ordenados.
+export const unoPorDia = (cambios) => {
+  const vistos = new Set();
+  let base = 0;
+  return cambios
+    .filter((c) => {
+      const dia = aDia(c.fecha);
+      if (vistos.has(dia)) return false;
+      vistos.add(dia);
+      return true;
+    })
+    .map((c, i) => {
+      base = Math.round((base + (Number(c.horasAnterior) || 0)) * 100) / 100;
+      return { ...c, numero: i + 2, base };
+    });
+};
+
 // Cambios del tractor, del más viejo al más nuevo.
-export const cambiosDeTractor = (tractorId) =>
-  CambioHorometro.find({ tractor: tractorId }).sort({ fecha: 1, createdAt: 1 }).lean();
+export const cambiosDeTractor = async (tractorId) =>
+  unoPorDia(await CambioHorometro.find({ tractor: tractorId }).sort({ fecha: 1, createdAt: 1 }).lean());
 
 // Qué horómetro estaba en servicio en esa fecha: su número y la base de horas
 // acumuladas de los anteriores.
@@ -105,6 +125,7 @@ export const mapaDeCambios = async () => {
     if (!mapa.has(k)) mapa.set(k, []);
     mapa.get(k).push(c);
   }
+  for (const [k, cambios] of mapa) mapa.set(k, unoPorDia(cambios));
   return mapa;
 };
 
@@ -357,6 +378,9 @@ export const registrarCambio = async ({
   }
 
   const cambios = await cambiosDeTractor(tractor);
+  // Ya hay uno ese día: es el mismo cambio, no se registra otra vez.
+  const mismoDia = cambios.find((c) => aDia(c.fecha) === aDia(fecha || new Date()));
+  if (mismoDia) return mismoDia;
   const numero = cambios.length + 2; // el 1 es el horómetro de fábrica
   const baseAnterior = cambios.length ? cambios[cambios.length - 1].base : 0;
 

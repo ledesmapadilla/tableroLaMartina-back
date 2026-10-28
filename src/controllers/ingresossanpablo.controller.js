@@ -117,13 +117,12 @@ const DE_SIN_CARRO = [...DE_RETIRO, "escalerasSanas", "escalerasRotas", "escaler
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
 
-// Lo que se carga en "Reparación escaleras" (25/10/2026); quién repara desde
-// el 28/10/2026. La fecha límite es una sola para la solapa (fecha-limite-
-// escaleras), no de cada reparación.
+// Lo que se carga en "Escaleras reparadas" (25/10/2026, desde el 28/10/2026
+// tocando las rotas en los totales): fecha, cuántas, quién repara (opcional)
+// y observaciones.
 const DE_REPARACION = ["fechaIngreso", "escalerasRotas", "escalerasReparadas", "reparadoPor", "observaciones"];
-const controlarReparacion = ({ escalerasRotas, escalerasReparadas, reparadoPor }) => {
+const controlarReparacion = ({ escalerasRotas, escalerasReparadas }) => {
   if (!((escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0)) return "Poné cuántas escaleras se repararon";
-  if (!reparadoPor) return "Poné quién repara";
   return null;
 };
 
@@ -147,9 +146,13 @@ const controlarReparadas = async (cosecha, fila, ignorarId = null) => {
   const total = (campo) => [...filas, fila].reduce((t, f) => t + (f[campo] || 0), 0);
   const rotas = total("escalerasRotas");
   const reparadas = total("escalerasReparadas");
-  return reparadas > rotas
-    ? `Las reparadas (${reparadas}) no pueden ser más que las rotas (${rotas}) en la cosecha ${cosecha}`
-    : null;
+  if (reparadas <= rotas) return null;
+  // El aviso con lo que queda hoy sin reparar, sin la fila que se carga.
+  const otras = (campo) => filas.reduce((t, f) => t + (f[campo] || 0), 0);
+  const pendientes = Math.max(otras("escalerasRotas") - otras("escalerasReparadas"), 0);
+  return fila.escalerasReparadas
+    ? `Quedan ${pendientes} rotas sin reparar en la cosecha ${cosecha}: no se pueden reparar ${fila.escalerasReparadas}`
+    : `Las reparadas (${reparadas}) no pueden ser más que las rotas (${rotas}) en la cosecha ${cosecha}`;
 };
 
 // Una baja necesita cantidad, motivo, quién las desecha y a quién se avisó.

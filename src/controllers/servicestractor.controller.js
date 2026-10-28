@@ -140,6 +140,23 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
 
     const horometrosMap = {};
 
+    // Los cambios de horómetro de cada tractor, por cada forma de escribir su
+    // CC. Las lecturas se comparan en horas acumuladas (28/10/2026): después
+    // de un cambio el horómetro nuevo arranca de 0, y comparando la lectura
+    // cruda una del nuevo (63) perdía contra una vieja del anterior (125,6).
+    const cambiosPorTractor = await mapaDeCambios();
+    const porCC = new Map();
+    if (cambiosPorTractor.size) {
+      const tractores = await Tractor.find().select("cc").lean();
+      for (const t of tractores) {
+        const clean = String(t.cc || "").replace(/^cc\s*/i, "").trim();
+        const cambios = cambiosPorTractor.get(String(t._id)) || [];
+        porCC.set(clean, cambios);
+        porCC.set(`CC ${clean}`, cambios);
+        porCC.set(String(t.cc || "").trim(), cambios);
+      }
+    }
+
     const registrarHorometro = (ccRaw, horoRaw, fechaStr, origen, forzar = false) => {
       if (!ccRaw) return;
       // Un 0 solo vale si se cargó a mano: es el horómetro nuevo después de un
@@ -157,6 +174,17 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
       const cleanCC = String(ccRaw).replace(/^cc\s*/i, "").trim();
       const fullCC = `CC ${cleanCC}`;
       const entry = { horometro: num, fecha: fechaStr, origen };
+      // Con qué se compara una lectura: primero de qué horómetro es (una del
+      // nuevo le gana a cualquiera del anterior, aunque esa haya quedado mal
+      // cargada por encima de donde terminó) y después las horas de la
+      // máquina.
+      const medida = (e) => {
+        const { acumuladas, numero } = acumularConCambios(porCC.get(cleanCC) || [], e.horometro, e.fecha);
+        return { numero, horas: acumuladas ?? e.horometro };
+      };
+      const masAdelante = (a, b) => a.numero > b.numero || (a.numero === b.numero && a.horas > b.horas);
+      const igual = (a, b) => a.numero === b.numero && a.horas === b.horas;
+      const esta = medida(entry);
 
       const actualizar = (key) => {
         if (!key) return;
@@ -176,7 +204,7 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
           // Frente a una lectura inferida, la carga manual es una confirmacion
           // explicita y puede corregir incluso hacia abajo, siempre que sea al
           // menos tan reciente como la lectura que reemplaza.
-          if (entry.fecha >= actual.fecha || num > actual.horometro) {
+          if (entry.fecha >= actual.fecha || masAdelante(esta, medida(actual))) {
             horometrosMap[key] = entry;
           }
           return;
@@ -189,9 +217,9 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
 
         // Lectura inferida: el horometro solo avanza. A igual valor se queda la
         // mas reciente, para que la fecha que se muestra sea la ultima.
-        if (num > actual.horometro) {
+        if (masAdelante(esta, medida(actual))) {
           horometrosMap[key] = entry;
-        } else if (num === actual.horometro && entry.fecha > actual.fecha) {
+        } else if (igual(esta, medida(actual)) && entry.fecha > actual.fecha) {
           horometrosMap[key] = entry;
         }
       };
@@ -283,17 +311,7 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
   // Horas reales de cada tractor. Mientras no haya cambios de horómetro
   // cargados, `acumuladas` es igual al horómetro y `numero` es 1: el
   // preventivo se comporta exactamente como antes.
-  const cambiosPorTractor = await mapaDeCambios();
   if (cambiosPorTractor.size) {
-    const tractores = await Tractor.find().select("cc").lean();
-    const porCC = new Map();
-    for (const t of tractores) {
-      const clean = String(t.cc || "").replace(/^cc\s*/i, "").trim();
-      const cambios = cambiosPorTractor.get(String(t._id)) || [];
-      porCC.set(clean, cambios);
-      porCC.set(`CC ${clean}`, cambios);
-      porCC.set(String(t.cc || "").trim(), cambios);
-    }
     for (const [clave, entry] of Object.entries(horometrosMap)) {
       const { acumuladas, numero } = acumularConCambios(
         porCC.get(clave) || [],
