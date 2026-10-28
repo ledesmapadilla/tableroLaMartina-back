@@ -142,6 +142,8 @@ export const getAll = async (req, res) => {
       StockInicialGasoil.findOne({ campo, tipo: filtroTipo(tipo) }).select("fecha litros").lean(),
       AuditoriaGasoil.find({ "cargas.campo": campo }).select("cargas").lean(),
     ]);
+    // La diferencia de cada auditoría, para su renglón de ajuste.
+    const resultados = await resultadosAuditorias(campo, tipo, auditorias);
 
     const filas = new Map();
     const fila = (fecha) => {
@@ -170,10 +172,6 @@ export const getAll = async (req, res) => {
     }
     for (const i of ingresos) fila(i._id).ingreso = i.litros;
     for (const g of cargados) Object.assign(fila(claveDia(g.fecha)), { observaciones: g.observaciones || "", _id: g._id });
-    // El día del stock inicial (21/10/2026): el punto de partida de las
-    // auditorías. Tiene renglón aunque ese día no haya consumo. Todavía no
-    // entra en el saldo.
-    if (stockInicial) fila(claveDia(stockInicial.fecha)).stockInicial = stockInicial.litros;
     // Y el de cada auditoría ya cargada en este campo (el día de la foto, su
     // corte, como en el resultado): los litros medidos. Con dos el mismo día
     // queda la última medición.
@@ -184,12 +182,81 @@ export const getAll = async (req, res) => {
       .sort((a, b) => momento(a) - momento(b));
     for (const c of medidas) fila(diaArgentina(momento(c))).auditoria = c.litros;
 
+    // Lo que entra en la cuenta desde el stock inicial (28/10/2026), por día:
+    // `consumoCuenta` e `ingresoCuenta`. El stock inicial es lo que hay al
+    // cierre de su día: entra todo lo de los días siguientes, y lo de ese día
+    // o antes no. Es la misma regla que las auditorías (resultadosAuditorias),
+    // así el saldo de arriba de la planilla coincide con lo que tendría que
+    // medir la auditoría. Sin stock inicial quedan en null y cuenta todo.
+    if (stockInicial) {
+      const diaStock = claveDia(stockInicial.fecha);
+      for (const f of filas.values()) {
+        const entra = f.fecha > diaStock;
+        f.consumoCuenta = entra ? f.consumo || 0 : 0;
+        f.ingresoCuenta = entra ? f.ingreso || 0 : 0;
+      }
+    }
+
     // El saldo se acumula del más viejo al más nuevo.
     const ordenadas = [...filas.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
     let saldo = 0;
     for (const f of ordenadas) {
       saldo += (f.ingreso || 0) - (f.consumo || 0);
       f.saldo = Math.round(saldo * 100) / 100;
+    }
+
+    // El stock inicial (21/10/2026), el punto de partida de las auditorías,
+    // en un renglón solo con su fecha (28/10/2026): es lo que hay al cierre
+    // de ese día, así que va después de los consumos e ingresos del día y no
+    // se confunde con ellos. `esStock` lo distingue del renglón del día.
+    if (stockInicial) {
+      const diaStock = claveDia(stockInicial.fecha);
+      const despues = ordenadas.findIndex((f) => f.fecha > diaStock);
+      ordenadas.splice(despues === -1 ? ordenadas.length : despues, 0, {
+        fecha: diaStock,
+        esStock: true,
+        combustible: null,
+        combTurbo: null,
+        consumo: null,
+        ingreso: null,
+        consumoCuenta: 0,
+        ingresoCuenta: 0,
+        saldo: null,
+        observaciones: "",
+        stockInicial: stockInicial.litros,
+        auditoria: null,
+        _id: null,
+      });
+    }
+
+    // El ajuste de cada auditoría con diferencia (28/10/2026): un renglón
+    // aparte, después de los del día de la auditoría, con la diferencia como
+    // consumo (positivo si faltó gasoil, negativo si sobró). Así el saldo
+    // queda en lo medido y sigue igual que la cuenta de la auditoría
+    // siguiente, que parte de lo medido. `esAjuste` lo distingue.
+    const ajustes = [...resultados.entries()]
+      .map(([id, r]) => ({ id, ...r, ajuste: redondear(r.teorico - r.medido) }))
+      .filter((r) => r.ajuste !== 0)
+      .sort((a, b) => a.hasta.localeCompare(b.hasta));
+    for (const r of ajustes) {
+      const dia = diaArgentina(r.hasta);
+      const despues = ordenadas.findIndex((f) => f.fecha > dia);
+      ordenadas.splice(despues === -1 ? ordenadas.length : despues, 0, {
+        fecha: dia,
+        esAjuste: true,
+        auditoriaId: r.id,
+        combustible: null,
+        combTurbo: null,
+        consumo: r.ajuste,
+        ingreso: null,
+        consumoCuenta: r.ajuste,
+        ingresoCuenta: 0,
+        saldo: null,
+        observaciones: `Valor de ajuste por diferencia de auditoría del ${dia.split("-").reverse().join("/")}`,
+        stockInicial: null,
+        auditoria: null,
+        _id: null,
+      });
     }
 
     res.json(ordenadas.reverse());
@@ -388,9 +455,11 @@ const redondear = (n) => Math.round(n * 100) / 100;
  *   día. El encargado se ocupa de que antes de la foto esté todo cargado.
  *   El momento de un consumo es su `combustibleEn` (o createdAt en los partes
  *   de antes) y el de un ingreso, su createdAt.
- * - El stock inicial es un punto de partida (27/10/2026): lo que hay en el
- *   tanque en el momento en que se carga (`momento`). Lo de antes no cuenta,
- *   aunque sea del mismo día; desde ahí corta igual que una auditoría.
+ * - El stock inicial es un punto de partida: lo que hay en el tanque al
+ *   cierre del día de su fecha (28/10/2026; antes, el momento en que se
+ *   cargaba). Entra todo lo de los días siguientes, se haya escrito antes o
+ *   después de cargarlo; lo de ese día o antes no cuenta. Las auditorías
+ *   siguientes cortan por el momento, como siempre.
  * - Las cargadas antes del stock inicial, o sin stock inicial, no tienen
  *   resultado.
  *
@@ -407,13 +476,14 @@ const resultadosAuditorias = async (campo, tipo, auditorias) => {
   // Los cargados antes del 27/10/2026 no tienen momento: el último cambio.
   const momentoStock = new Date(stockInicial.momento ?? stockInicial.updatedAt);
 
-  // Uno por uno, con su momento: desde el día del stock inicial. Cada tanque
-  // con sus consumos (27/10/2026: el Infinia, solo la retro).
+  // Uno por uno, con su momento: de los días posteriores al del stock
+  // inicial. Cada tanque con sus consumos (27/10/2026: el Infinia, solo la
+  // retro).
   const [partes, ingresos] = await Promise.all([
-    ParteDiario.find({ ...(await filtroConsumos(campo, tipo)), fecha: { $gte: stockInicial.fecha } })
+    ParteDiario.find({ ...(await filtroConsumos(campo, tipo)), fecha: { $gt: stockInicial.fecha } })
       .select("combustible combTurbo combustibleEn createdAt")
       .lean(),
-    IngresoGasoil.find({ campo, tipo: filtroTipo(tipo), fecha: { $gte: stockInicial.fecha } })
+    IngresoGasoil.find({ campo, tipo: filtroTipo(tipo), fecha: { $gt: stockInicial.fecha } })
       .select("litros createdAt")
       .lean(),
   ]);
@@ -435,9 +505,11 @@ const resultadosAuditorias = async (campo, tipo, auditorias) => {
     .filter((a) => a.corte > momentoStock)
     .sort((a, b) => a.corte - b.corte);
 
+  // Desde el stock inicial entra todo lo de los días siguientes, sin mirar
+  // cuándo se escribió: el corte de partida no deja nada afuera.
   let partida = {
     litros: stockInicial.litros,
-    corte: momentoStock.getTime(),
+    corte: -Infinity,
     desde: momentoStock.toISOString(),
     origen: "stock inicial",
   };
