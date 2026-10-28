@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { dividirItem } from '../controllers/dividirItem.js'
 import { archivoPedido, PUEDEN_ADJUNTAR } from '../controllers/archivoPedido.js'
+import { tituloPedido } from '../controllers/tituloPedido.js'
 import { exigirEditar } from '../middleware/permisos.js'
 import SanPabloPedido from '../models/SanPabloPedido.js'
 import { getAll, crear, actualizarItem, borrarItem, ping, getHistorialItem, getById, getItemsPorEstado, getHistorialGerencia } from '../controllers/sanPabloPedido.controller.js'
@@ -21,5 +22,7 @@ router.delete('/:id/items/:itemId', borrarItem)
 // El adjunto del pedido entero (28/09/2026): lo sube o lo saca el mismo que
 // adjunta en un ítem.
 router.put('/:id/archivo', exigirEditar(PUEDEN_ADJUNTAR), archivoPedido(SanPabloPedido))
+// El título del pedido (28/10/2026): los mismos que adjuntan.
+router.put('/:id/titulo', exigirEditar(PUEDEN_ADJUNTAR), tituloPedido(SanPabloPedido))
 
 export default router

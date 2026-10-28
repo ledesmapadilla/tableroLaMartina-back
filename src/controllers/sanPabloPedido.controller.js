@@ -47,7 +47,7 @@ export const getItemsPorEstado = async (req, res) => {
     const { estado } = req.params
     const pedidos = await SanPabloPedido.find(
       { 'items.estado': estado },
-      { nro_pedido: 1, fecha: 1, items: 1, archivo: 1 }
+      { nro_pedido: 1, fecha: 1, items: 1, archivo: 1, titulo: 1 }
     ).lean()
     const items = pedidos.flatMap(p =>
       p.items
@@ -59,6 +59,7 @@ export const getItemsPorEstado = async (req, res) => {
           pedidoId: p._id,
           // El adjunto del pedido entero, si lo tiene.
           archivoPedido: p.archivo,
+          tituloPedido: p.titulo,
         }))
     )
     res.json(items)
@@ -118,6 +119,7 @@ export const ping = (req, res) => res.json({ ok: true, ts: Date.now() })
 export const crear = async (req, res) => {
   try {
     const { fecha, items } = req.body
+    const titulo = String(req.body.titulo ?? '').trim() || undefined
     if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria.' })
     if (String(fecha).slice(0, 10) > hoyArgentina()) {
       return res.status(400).json({ error: 'La fecha del pedido no puede ser posterior a hoy.' })
@@ -132,7 +134,7 @@ export const crear = async (req, res) => {
       ...item,
       historial: [{ estado: 'Para analisis', usuario: item.solicita || 'Sistema', nota: 'Pedido creado' }],
     }))
-    const nuevo = await new SanPabloPedido({ fecha, items: itemsConHistorial }).save()
+    const nuevo = await new SanPabloPedido({ fecha, titulo, items: itemsConHistorial }).save()
     res.status(201).json(nuevo)
   } catch (error) {
     res.status(500).json({ error: error.message })

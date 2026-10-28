@@ -72,6 +72,9 @@ const IngresoSanPabloSchema = new Schema(
     // fecha, cuántas rotas, cuántas reparadas y observaciones. No mueve
     // escaleras; suma a los totales de rotas y reparadas.
     reparacion: { type: Boolean, default: false },
+    // En una reparación de escaleras (28/10/2026): quién las repara. La fecha
+    // límite es una sola para todas (FechaLimiteEscaleras).
+    reparadoPor: { type: String, trim: true, default: "" },
     // En Escaleras: el estado inicial de la cosecha ("Estado inicial",
     // 27/10/2026), una reparación con la fecha, cuántas había rotas y
     // observaciones. Uno solo por cosecha.

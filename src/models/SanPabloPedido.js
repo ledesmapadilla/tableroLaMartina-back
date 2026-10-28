@@ -78,6 +78,9 @@ const pedidoSchema = new mongoose.Schema({
   // Lo que abarca a todos los ítems (28/09/2026): el presupuesto único, el
   // remito de todo lo pedido. El de cada ítem sigue en el ítem.
   archivo:    { type: archivoAdjuntoSchema, default: undefined },
+  // El título de un pedido de varios ítems (28/10/2026): lo que se ve en la
+  // fila del pedido en lugar de "Varios". Opcional.
+  titulo:     { type: String, trim: true, maxlength: 80, default: undefined },
   // 'reparaciones' si salió de Reparaciones San Pablo: el número lleva una R.
   origen:     { type: String, enum: ['reparaciones'], default: undefined },
 }, { timestamps: true })

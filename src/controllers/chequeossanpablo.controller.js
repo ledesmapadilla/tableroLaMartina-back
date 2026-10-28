@@ -5,6 +5,7 @@ import OC from "../models/OC.js";
 import EstadoIngresoManitou from "../models/EstadoIngresoManitou.js";
 import EstadoManitou, { ESTADOS_MANITOU } from "../models/EstadoManitou.js";
 import PesosManitou from "../models/PesosManitou.js";
+import FechaLimiteManitou from "../models/FechaLimiteManitou.js";
 import {
   SECCIONES_MANITOU,
   SECCION_GENERAL,
@@ -679,6 +680,62 @@ export const savePesosManitou = async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     ).lean();
     res.json({ pesos: pesosComoObjeto(doc) });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ── Fecha límite de las Manitou (28/10/2026) ──
+// La total, arriba de las tarjetas, y la de cada Manitou, en su panel de
+// avance: ninguna de las Manitou pasa la total. GET ?cosecha → { fecha,
+// porManitou: { [seccion]: fecha } }; PUT { cosecha, fecha } la total o
+// { cosecha, seccion, fecha } la de una Manitou ("" o null la borra).
+const fechasLimite = (doc) => ({
+  fecha: doc?.fecha ?? null,
+  porManitou: Object.fromEntries(
+    Object.entries(doc?.porManitou ?? {}).filter(([, f]) => f)
+  ),
+});
+const fmtFecha = (f) => f.toISOString().slice(0, 10).split("-").reverse().join("/");
+
+export const getFechaLimiteManitou = async (req, res) => {
+  try {
+    const cosecha = Number(req.query.cosecha);
+    if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    res.json(fechasLimite(await FechaLimiteManitou.findOne({ cosecha }).lean()));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveFechaLimiteManitou = async (req, res) => {
+  try {
+    const cosecha = Number(req.body.cosecha);
+    if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    const fecha = req.body.fecha ? new Date(req.body.fecha) : null;
+    if (fecha && Number.isNaN(fecha.getTime())) return res.status(400).json({ error: "Fecha inválida" });
+    const { seccion } = req.body;
+    if (seccion && (seccion === SECCION_GENERAL || !SECCIONES_MANITOU.includes(seccion))) {
+      return res.status(400).json({ error: "Manitou inválida" });
+    }
+    const actual = fechasLimite(await FechaLimiteManitou.findOne({ cosecha }).lean());
+    if (fecha && seccion) {
+      if (actual.fecha && fecha > actual.fecha) {
+        return res.status(400).json({ error: `No puede pasar la fecha límite de las Manitou (${fmtFecha(actual.fecha)})` });
+      }
+    } else if (fecha) {
+      const pasadas = Object.entries(actual.porManitou).filter(([, f]) => new Date(f) > fecha);
+      if (pasadas.length) {
+        const cuales = pasadas.map(([s]) => unidadDeSeccion(s)).join(", ");
+        return res.status(400).json({ error: `La Manitou ${cuales} tiene una fecha límite posterior. Cambiala primero.` });
+      }
+    }
+    const doc = await FechaLimiteManitou.findOneAndUpdate(
+      { cosecha },
+      { $set: seccion ? { [`porManitou.${seccion}`]: fecha } : { fecha } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json(fechasLimite(doc));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

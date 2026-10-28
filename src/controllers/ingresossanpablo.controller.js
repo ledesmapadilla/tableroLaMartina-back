@@ -2,6 +2,8 @@ import IngresoSanPablo from "../models/IngresoSanPablo.js";
 import CentroCosto from "../models/CentroCosto.js";
 import FrenteSanPablo from "../models/FrenteSanPablo.js";
 import ResponsablesSanPablo from "../models/ResponsablesSanPablo.js";
+import ReparacionCarroEscaleras from "../models/ReparacionCarroEscaleras.js";
+import FechaLimiteEscaleras, { SOLAPAS_FECHA_LIMITE } from "../models/FechaLimiteEscaleras.js";
 import { SECCIONES_MANITOU } from "../catalogos/manitous.js";
 
 const POPULATE = [
@@ -32,6 +34,7 @@ const datosDe = (body) => {
   if ("escalerasReparadas" in body) datos.escalerasReparadas = numero(body.escalerasReparadas);
   if ("motivo" in body) datos.motivo = limpiar(body.motivo);
   if ("avisadoA" in body) datos.avisadoA = limpiar(body.avisadoA);
+  if ("reparadoPor" in body) datos.reparadoPor = limpiar(body.reparadoPor);
   if ("observaciones" in body) datos.observaciones = limpiar(body.observaciones);
   return datos;
 };
@@ -114,10 +117,15 @@ const DE_SIN_CARRO = [...DE_RETIRO, "escalerasSanas", "escalerasRotas", "escaler
 // Lo que se carga en "Baja de escaleras".
 const DE_BAJA = ["fechaIngreso", "cantidadEscaleras", "motivo", "ingresadoPor", "avisadoA"];
 
-// Lo que se carga en "Reparación escaleras" (25/10/2026).
-const DE_REPARACION = ["fechaIngreso", "escalerasRotas", "escalerasReparadas", "observaciones"];
-const controlarReparacion = ({ escalerasRotas, escalerasReparadas }) =>
-  (escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0 ? null : "Poné cuántas escaleras se repararon";
+// Lo que se carga en "Reparación escaleras" (25/10/2026); quién repara desde
+// el 28/10/2026. La fecha límite es una sola para la solapa (fecha-limite-
+// escaleras), no de cada reparación.
+const DE_REPARACION = ["fechaIngreso", "escalerasRotas", "escalerasReparadas", "reparadoPor", "observaciones"];
+const controlarReparacion = ({ escalerasRotas, escalerasReparadas, reparadoPor }) => {
+  if (!((escalerasRotas ?? 0) + (escalerasReparadas ?? 0) > 0)) return "Poné cuántas escaleras se repararon";
+  if (!reparadoPor) return "Poné quién repara";
+  return null;
+};
 
 // Lo que se carga en "Estado inicial" (27/10/2026): va como una reparación
 // marcada, así suma a las rotas sin mover escaleras.
@@ -459,6 +467,87 @@ export const remove = async (req, res) => {
     if (actual.tipo === CARROS) await IngresoSanPablo.deleteMany({ tipo: ESCALERAS, origen: actual._id });
     if (actual.retiro) await IngresoSanPablo.deleteMany({ tipo: CARROS, origen: actual._id, salida: true });
     res.json({ message: "Ingreso eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Fecha límite de la reparación (28/10/2026) ──
+// Una por solapa (carros, escaleras) y cosecha. GET ?cosecha → { carros,
+// escaleras }; PUT { cosecha, solapa, fecha } ("" o null la borra).
+export const getFechaLimiteEscaleras = async (req, res) => {
+  try {
+    const cosecha = cosechaDe(req.query.cosecha);
+    if (!cosecha) return res.status(400).json({ error: "Cosecha inválida" });
+    const doc = await FechaLimiteEscaleras.findOne({ cosecha }).lean();
+    res.json({ carros: doc?.carros ?? null, escaleras: doc?.escaleras ?? null });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveFechaLimiteEscaleras = async (req, res) => {
+  try {
+    const cosecha = cosechaDe(req.body.cosecha);
+    if (!cosecha) return res.status(400).json({ error: "Cosecha inválida" });
+    const { solapa } = req.body;
+    if (!SOLAPAS_FECHA_LIMITE.includes(solapa)) return res.status(400).json({ error: "Solapa inválida" });
+    const fecha = req.body.fecha ? new Date(req.body.fecha) : null;
+    if (fecha && Number.isNaN(fecha.getTime())) return res.status(400).json({ error: "Fecha inválida" });
+    const doc = await FechaLimiteEscaleras.findOneAndUpdate(
+      { cosecha },
+      { $set: { [solapa]: fecha } },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json({ carros: doc.carros ?? null, escaleras: doc.escaleras ?? null });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ── Reparación de los carros porta escaleras (28/10/2026) ──
+// Una por carro y cosecha. GET ?cosecha → las cargadas; PUT { cosecha, cc,
+// fecha, trabajos, observaciones } la crea o la cambia; DELETE /:id la borra.
+// La fecha límite es una sola para la solapa (fecha-limite-escaleras).
+export const getReparacionesCarros = async (req, res) => {
+  try {
+    const cosecha = cosechaDe(req.query.cosecha);
+    if (!cosecha) return res.status(400).json({ error: "Cosecha inválida" });
+    res.json(await ReparacionCarroEscaleras.find({ cosecha }).lean());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const saveReparacionCarro = async (req, res) => {
+  try {
+    const cosecha = cosechaDe(req.body.cosecha);
+    if (!cosecha) return res.status(400).json({ error: "Cosecha inválida" });
+    const cc = req.body.cc;
+    if (!cc || (await ccInexistente(cc))) return res.status(400).json({ error: "El carro no existe" });
+    const datos = {
+      fecha: req.body.fecha || null,
+      trabajos: limpiar(req.body.trabajos),
+      observaciones: limpiar(req.body.observaciones),
+    };
+    if (!datos.fecha) return res.status(400).json({ error: "Poné la fecha" });
+    if (!datos.trabajos) return res.status(400).json({ error: "Poné los trabajos a realizar" });
+    const doc = await ReparacionCarroEscaleras.findOneAndUpdate(
+      { cosecha, cc },
+      { $set: datos },
+      { upsert: true, new: true, runValidators: true }
+    ).lean();
+    res.json(doc);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const removeReparacionCarro = async (req, res) => {
+  try {
+    const doc = await ReparacionCarroEscaleras.findByIdAndDelete(req.params.id);
+    if (!doc) return res.status(404).json({ error: "Reparación no encontrada" });
+    res.json({ message: "Reparación eliminada" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
