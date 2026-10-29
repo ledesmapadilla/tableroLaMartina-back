@@ -90,7 +90,9 @@ export const unoPorDia = (cambios) => {
 
 // Cambios del tractor, del más viejo al más nuevo.
 export const cambiosDeTractor = async (tractorId) =>
-  unoPorDia(await CambioHorometro.find({ tractor: tractorId }).sort({ fecha: 1, createdAt: 1 }).lean());
+  unoPorDia(
+    await CambioHorometro.find({ tractor: tractorId, anulado: { $ne: true } }).sort({ fecha: 1, createdAt: 1 }).lean()
+  );
 
 // Qué horómetro estaba en servicio en esa fecha: su número y la base de horas
 // acumuladas de los anteriores.
@@ -118,7 +120,8 @@ export const horasAcumuladas = async (tractorId, lectura, fecha) => {
 
 // tractorId (string) -> cambios ordenados del más viejo al más nuevo.
 export const mapaDeCambios = async () => {
-  const todos = await CambioHorometro.find().sort({ fecha: 1, createdAt: 1 }).lean();
+  // Los anulados no cuentan (29/10/2026).
+  const todos = await CambioHorometro.find({ anulado: { $ne: true } }).sort({ fecha: 1, createdAt: 1 }).lean();
   const mapa = new Map();
   for (const c of todos) {
     const k = String(c.tractor);

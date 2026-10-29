@@ -20,6 +20,10 @@ const CambioHorometroSchema = new Schema(
     // Con cuánto arranca el horómetro nuevo. Casi siempre 0.
     lecturaInicial: { type: Number, default: 0 },
     observaciones: { type: String, trim: true, default: "" },
+    // Un cambio que no existió (29/10/2026: el 191 y el 102, registrados
+    // desde el cartel de "el horómetro retrocede" sin que se cambiara nada).
+    // No cuenta, pero queda guardado por si hay que volver atrás.
+    anulado: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
