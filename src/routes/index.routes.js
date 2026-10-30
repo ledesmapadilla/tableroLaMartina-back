@@ -51,6 +51,7 @@ import registroRouter from "./registro.routes.js";
 import { verificarToken, soloRoles } from "../middleware/auth.js";
 import { escribirSi } from "../middleware/permisos.js";
 import { registrarCambios } from "../middleware/registro.js";
+import { unaVez } from "../middleware/unaVez.js";
 
 const router = Router();
 
@@ -81,6 +82,11 @@ router.use((req, res, next) =>
 // Quién hizo qué y cuándo (25/10/2026): cada alta, cambio o baja, y cada
 // login. Va después del token para saber quién es.
 router.use(registrarCambios);
+
+// Cada alta una sola vez (29/10/2026): un POST repetido (doble clic, señal
+// que se corta) no se guarda dos veces. Va después del registro, así el
+// reintento también queda anotado.
+router.use(unaVez);
 
 /**
  * Quién escribe en cada recurso, según la tabla de Roles (Altas › Usuarios ›

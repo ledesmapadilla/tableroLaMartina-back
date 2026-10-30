@@ -47,6 +47,9 @@ const itemSchema = new mongoose.Schema({
     default: undefined,
   },
   oc:         { type: String },
+  // Un pedido de servicio (29/10/2026): el número lleva una S al final
+  // (SP-045-S). Va también en el pedido; en el ítem viaja a todas las pantallas.
+  servicio:   { type: Boolean, default: undefined },
   // El adjunto del ítem (19/09/2026): el presupuesto que sube el analista o lo
   // que suma el taller al pedir. El archivo vive en Cloudinary; acá queda la
   // URL con la que se abre, el nombre con el que se subió y el public_id con el
@@ -78,6 +81,8 @@ const pedidoSchema = new mongoose.Schema({
   // El título de un pedido de varios ítems (28/10/2026): lo que se ve en la
   // fila del pedido en lugar de "Varios". Opcional.
   titulo:     { type: String, trim: true, maxlength: 80, default: undefined },
+  // true si es un pedido de servicio: el número lleva una S al final.
+  servicio:   { type: Boolean, default: undefined },
 }, { timestamps: true })
 
 pedidoSchema.index({ 'items.estado': 1 })

@@ -99,6 +99,8 @@ export const getHistorialGerencia = async (req, res) => {
           nro_pedido: p.nro_pedido,
           // Hecho desde Reparaciones: el número lleva una R (SP-R045).
           origen: i.origen,
+          // De servicio: el número lleva una S al final (SP-045-S).
+          servicio: i.servicio,
           fecha: p.fecha,
           pedidoId: p._id,
           accionesGerencia: i.historial.filter(h => h.usuario === 'Gerencia'),
@@ -120,6 +122,8 @@ export const crear = async (req, res) => {
   try {
     const { fecha, items } = req.body
     const titulo = String(req.body.titulo ?? '').trim() || undefined
+    // De servicio: la marca va en el pedido y en cada ítem.
+    const servicio = req.body.servicio === true || undefined
     if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria.' })
     if (String(fecha).slice(0, 10) > hoyArgentina()) {
       return res.status(400).json({ error: 'La fecha del pedido no puede ser posterior a hoy.' })
@@ -132,9 +136,10 @@ export const crear = async (req, res) => {
     }
     const itemsConHistorial = items.map(item => ({
       ...item,
+      servicio,
       historial: [{ estado: 'Para analisis', usuario: item.solicita || 'Sistema', nota: 'Pedido creado' }],
     }))
-    const nuevo = await new SanPabloPedido({ fecha, titulo, items: itemsConHistorial }).save()
+    const nuevo = await new SanPabloPedido({ fecha, titulo, servicio, items: itemsConHistorial }).save()
     res.status(201).json(nuevo)
   } catch (error) {
     res.status(500).json({ error: error.message })

@@ -476,14 +476,16 @@ export const remove = async (req, res) => {
 };
 
 // ── Fecha límite de la reparación (28/10/2026) ──
-// Una por solapa (carros, escaleras) y cosecha. GET ?cosecha → { carros,
-// escaleras }; PUT { cosecha, solapa, fecha } ("" o null la borra).
+// Una por solapa (SOLAPAS_FECHA_LIMITE) y cosecha. GET ?cosecha → { carros,
+// escaleras, bines, bolsones, tolvas, colectivos, carrosTotal }; PUT { cosecha, solapa, fecha } ("" o null la borra).
+const fechasLimite = (doc) => Object.fromEntries(SOLAPAS_FECHA_LIMITE.map((s) => [s, doc?.[s] ?? null]));
+
 export const getFechaLimiteEscaleras = async (req, res) => {
   try {
     const cosecha = cosechaDe(req.query.cosecha);
     if (!cosecha) return res.status(400).json({ error: "Cosecha inválida" });
     const doc = await FechaLimiteEscaleras.findOne({ cosecha }).lean();
-    res.json({ carros: doc?.carros ?? null, escaleras: doc?.escaleras ?? null });
+    res.json(fechasLimite(doc));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -502,7 +504,7 @@ export const saveFechaLimiteEscaleras = async (req, res) => {
       { $set: { [solapa]: fecha } },
       { upsert: true, new: true, runValidators: true }
     ).lean();
-    res.json({ carros: doc.carros ?? null, escaleras: doc.escaleras ?? null });
+    res.json(fechasLimite(doc));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

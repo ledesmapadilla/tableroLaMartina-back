@@ -10,6 +10,8 @@ const ocItemSchema = new mongoose.Schema({
   _src:            { type: String },
   // 'reparaciones' si el pedido salió de Reparaciones San Pablo (SP-R045).
   origen:          { type: String },
+  // true si el pedido es de servicio (SP-045-S).
+  servicio:        { type: Boolean },
   nombre_repuesto: { type: String },
   cant:            { type: Number },
   precio_unitario: { type: Number },
