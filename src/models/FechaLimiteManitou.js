@@ -17,3 +17,7 @@ const FechaLimiteManitouSchema = new Schema(
 FechaLimiteManitouSchema.index({ cosecha: 1 }, { unique: true });
 
 export default model("FechaLimiteManitou", FechaLimiteManitouSchema);
+
+// La de cada tolva (31/10/2026). La total de las tolvas no va acá: es la de
+// Tolvas › General, en FechaLimiteEscaleras.
+export const FechaLimiteTolva = model("FechaLimiteTolva", FechaLimiteManitouSchema.clone());

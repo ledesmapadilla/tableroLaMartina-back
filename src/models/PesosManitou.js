@@ -16,3 +16,6 @@ const PesosManitouSchema = new Schema(
 PesosManitouSchema.index({ cosecha: 1 }, { unique: true });
 
 export default model("PesosManitou", PesosManitouSchema);
+
+// Los de las tolvas (31/10/2026), con sus propios % por cosecha.
+export const PesosTolva = model("PesosTolva", PesosManitouSchema.clone());

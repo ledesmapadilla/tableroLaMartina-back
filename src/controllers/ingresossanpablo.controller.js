@@ -4,7 +4,8 @@ import FrenteSanPablo from "../models/FrenteSanPablo.js";
 import ResponsablesSanPablo from "../models/ResponsablesSanPablo.js";
 import ReparacionCarroEscaleras from "../models/ReparacionCarroEscaleras.js";
 import FechaLimiteEscaleras, { SOLAPAS_FECHA_LIMITE } from "../models/FechaLimiteEscaleras.js";
-import { SECCIONES_MANITOU } from "../catalogos/manitous.js";
+import { esSeccion } from "../catalogos/tolvas.js";
+import { FechaLimiteTolva } from "../models/FechaLimiteManitou.js";
 
 const POPULATE = [
   { path: "cc", select: "cc equipo descripcion" },
@@ -499,6 +500,13 @@ export const saveFechaLimiteEscaleras = async (req, res) => {
     if (!SOLAPAS_FECHA_LIMITE.includes(solapa)) return res.status(400).json({ error: "Solapa inválida" });
     const fecha = req.body.fecha ? new Date(req.body.fecha) : null;
     if (fecha && Number.isNaN(fecha.getTime())) return res.status(400).json({ error: "Fecha inválida" });
+    // Como en las Manitou, ninguna tolva pasa la fecha total.
+    if (fecha && solapa === "tolvas") {
+      const propias = await FechaLimiteTolva.findOne({ cosecha }).lean();
+      if (Object.values(propias?.porManitou ?? {}).some((f) => f && new Date(f) > fecha)) {
+        return res.status(400).json({ error: "Hay una tolva con una fecha límite posterior. Cambiala primero." });
+      }
+    }
     const doc = await FechaLimiteEscaleras.findOneAndUpdate(
       { cosecha },
       { $set: { [solapa]: fecha } },
@@ -593,13 +601,11 @@ export const createFrente = async (req, res) => {
 // cosecha. Se guarda la lista entera de una vez: así se agregan, se quitan y
 // quedan en el orden de la pantalla.
 
-const SECCIONES = SECCIONES_MANITOU;
-
 const claveDe = (fuente) => {
   const cosecha = Number(fuente.cosecha);
   const seccion = limpiar(fuente.seccion);
   if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
-  if (!SECCIONES.includes(seccion)) return { error: "Sección inválida" };
+  if (!esSeccion(seccion)) return { error: "Sección inválida" };
   return { cosecha, seccion };
 };
 

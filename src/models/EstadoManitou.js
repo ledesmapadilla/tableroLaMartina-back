@@ -10,6 +10,9 @@ const EstadoManitouSchema = new Schema(
     cosecha: { type: Number, required: true, min: 2026 },
     seccion: { type: String, trim: true, required: true },
     estado: { type: String, enum: [...ESTADOS_MANITOU, null], default: null },
+    // En espera, el lugar que se le puso (31/10/2026), de 1 al total de la
+    // familia: "2/6". Una marcada antes de esto no lo tiene.
+    orden: { type: Number, default: null },
   },
   { timestamps: true }
 );

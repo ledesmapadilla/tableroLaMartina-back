@@ -75,44 +75,55 @@ export const esCodigoFijo = (cc) => UNIDADES_MANITOU.includes(String(cc || "").t
 
 const filtroCampo = ({ array, campo }, re) => ({ [array ? `${array}.${campo}` : campo]: re });
 
+const filtroResumen = (cc) => ({
+  accion: { $in: ["alta", "baja"] },
+  $or: RESUMENES.map((campo) => ({ [campo]: new RegExp(enResumen(cc).source, "i") })),
+});
+
+// Cuántos registros hay en cada lugar. Son unas 25 consultas y una por vez
+// tardaban segundos: van todas juntas.
+const contarLugares = async (viejo) => {
+  const re = exacto(viejo);
+  const reTexto = new RegExp(enTexto(viejo).source, "i");
+  const colecciones = await coleccionesDeMovimientos();
+  const [campos, movimientos, textos, resumenes] = await Promise.all([
+    Promise.all(CAMPOS.map((lugar) => lugar.modelo.countDocuments(filtroCampo(lugar, re)))),
+    Promise.all(colecciones.map((nombre) => mongoose.connection.db.collection(nombre).countDocuments({ cc: re }))),
+    Promise.all(TEXTOS.map((lugar) => lugar.modelo.countDocuments(filtroCampo(lugar, reTexto)))),
+    HistorialTractor.countDocuments(filtroResumen(viejo)),
+  ]);
+  return {
+    campos: CAMPOS.map((lugar, i) => ({ lugar, cantidad: campos[i] })),
+    movimientos: colecciones.map((nombre, i) => ({ nombre, cantidad: movimientos[i] })),
+    textos: TEXTOS.map((lugar, i) => ({ lugar, cantidad: textos[i] })),
+    resumenes,
+  };
+};
+
 /** Cuántos registros cambian en cada lugar. No escribe nada. */
 export const contarRenombre = async (viejo) => {
-  const re = exacto(viejo);
-  const lugares = [];
-  for (const lugar of CAMPOS) {
-    const cantidad = await lugar.modelo.countDocuments(filtroCampo(lugar, re));
-    if (cantidad) lugares.push({ label: lugar.label, cantidad });
-  }
-  let almacen = 0;
-  for (const nombre of await coleccionesDeMovimientos()) {
-    almacen += await mongoose.connection.db.collection(nombre).countDocuments({ cc: re });
-  }
-  if (almacen) lugares.push({ label: "Movimientos del almacén", cantidad: almacen });
-
-  const reTexto = new RegExp(enTexto(viejo).source, "i");
-  let textos = 0;
-  for (const lugar of TEXTOS) textos += await lugar.modelo.countDocuments(filtroCampo(lugar, reTexto));
-  if (textos) lugares.push({ label: "Observaciones que lo nombran", cantidad: textos });
-
-  const reResumen = new RegExp(enResumen(viejo).source, "i");
-  const resumenes = await HistorialTractor.countDocuments({
-    accion: { $in: ["alta", "baja"] },
-    $or: RESUMENES.map((campo) => ({ [campo]: reResumen })),
-  });
+  const { campos, movimientos, textos, resumenes } = await contarLugares(viejo);
+  const suma = (lista) => lista.reduce((total, { cantidad }) => total + cantidad, 0);
+  const lugares = campos.filter((c) => c.cantidad).map((c) => ({ label: c.lugar.label, cantidad: c.cantidad }));
+  if (suma(movimientos)) lugares.push({ label: "Movimientos del almacén", cantidad: suma(movimientos) });
+  if (suma(textos)) lugares.push({ label: "Observaciones que lo nombran", cantidad: suma(textos) });
   if (resumenes) lugares.push({ label: "Altas y bajas del historial", cantidad: resumenes });
-
   return lugares;
 };
 
 /**
  * Reescribe el código en todos lados, dentro de la sesión (transacción) que
  * se le pasa. El padrón de CC lo cambia quien llama.
+ *
+ * En una transacción no se puede ir en paralelo, así que primero se mira
+ * dónde está escrito y solo se visitan esos lugares: un CC aparece en pocos.
  */
 export const aplicarRenombre = async (viejo, nuevo, session) => {
   const re = exacto(viejo);
   const opciones = { session };
+  const { campos, movimientos, textos, resumenes } = await contarLugares(viejo);
 
-  for (const lugar of CAMPOS) {
+  for (const { lugar } of campos.filter((c) => c.cantidad)) {
     const coleccion = lugar.modelo.collection;
     if (lugar.array) {
       await coleccion.updateMany(
@@ -124,7 +135,7 @@ export const aplicarRenombre = async (viejo, nuevo, session) => {
       await coleccion.updateMany({ [lugar.campo]: re }, { $set: { [lugar.campo]: nuevo } }, opciones);
     }
   }
-  for (const nombre of await coleccionesDeMovimientos()) {
+  for (const { nombre } of movimientos.filter((m) => m.cantidad)) {
     await mongoose.connection.db.collection(nombre).updateMany({ cc: re }, { $set: { cc: nuevo } }, opciones);
   }
 
@@ -132,7 +143,7 @@ export const aplicarRenombre = async (viejo, nuevo, session) => {
   const reTexto = enTexto(viejo);
   const reBuscar = new RegExp(reTexto.source, "i");
   const reemplazar = (texto) => (typeof texto === "string" ? texto.replace(reTexto, `CC ${nuevo}`) : texto);
-  for (const lugar of TEXTOS) {
+  for (const { lugar } of textos.filter((t) => t.cantidad)) {
     const coleccion = lugar.modelo.collection;
     const docs = await coleccion.find(filtroCampo(lugar, reBuscar), opciones).toArray();
     for (const doc of docs) {
@@ -145,12 +156,7 @@ export const aplicarRenombre = async (viejo, nuevo, session) => {
 
   const reResumen = enResumen(viejo);
   const historial = HistorialTractor.collection;
-  const altasYBajas = await historial
-    .find(
-      { accion: { $in: ["alta", "baja"] }, $or: RESUMENES.map((campo) => ({ [campo]: new RegExp(reResumen.source, "i") })) },
-      opciones
-    )
-    .toArray();
+  const altasYBajas = resumenes ? await historial.find(filtroResumen(viejo), opciones).toArray() : [];
   for (const doc of altasYBajas) {
     const set = {};
     for (const campo of RESUMENES) {

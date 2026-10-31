@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import { archivoAdjuntoSchema } from './archivoAdjunto.js'
 
-const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros']
+const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Tolvas', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros']
 
 const historialItemSchema = new mongoose.Schema({
   fecha:   { type: Date, default: Date.now },

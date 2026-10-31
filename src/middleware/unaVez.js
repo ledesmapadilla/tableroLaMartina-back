@@ -44,19 +44,28 @@ export const unaVez = async (req, res, next) => {
 
   const _id = huellaDe(req, ruta);
   const ahora = new Date();
+  let repetido = false;
   try {
-    // Uno vencido (el índice TTL tarda en borrarlo) se pisa como si no estuviera.
-    const pisado = await EnvioReciente.updateOne(
-      { _id, fecha: { $lt: new Date(ahora - VENTANA_ENVIO_MS) } },
-      { $set: { fecha: ahora, estado: "enCurso" }, $unset: { status: "", cuerpo: "" } }
-    );
-    if (!pisado.matchedCount) await EnvioReciente.create({ _id, fecha: ahora, estado: "enCurso" });
+    await EnvioReciente.create({ _id, fecha: ahora, estado: "enCurso" });
   } catch (error) {
     if (error?.code !== 11000) {
       // Si la base de esto falla, el alta sigue como siempre.
       console.error("No se pudo revisar el envío repetido:", error.message);
       return next();
     }
+    try {
+      // Uno vencido (el índice TTL tarda en borrarlo) se pisa como si no estuviera.
+      const pisado = await EnvioReciente.updateOne(
+        { _id, fecha: { $lt: new Date(ahora - VENTANA_ENVIO_MS) } },
+        { $set: { fecha: ahora, estado: "enCurso" }, $unset: { status: "", cuerpo: "" } }
+      );
+      repetido = !pisado.matchedCount;
+    } catch (errorPisar) {
+      console.error("No se pudo revisar el envío repetido:", errorPisar.message);
+      return next();
+    }
+  }
+  if (repetido) {
     // Ya hay uno igual: es un reintento.
     const hasta = Date.now() + ESPERA_MAX_MS;
     while (Date.now() < hasta) {

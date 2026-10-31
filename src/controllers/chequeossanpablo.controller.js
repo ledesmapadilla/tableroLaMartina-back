@@ -2,10 +2,12 @@ import ChequeoSanPablo from "../models/ChequeoSanPablo.js";
 import SanPabloPedido from "../models/SanPabloPedido.js";
 import PresupuestoReparacion from "../models/PresupuestoReparacion.js";
 import OC from "../models/OC.js";
+import CentroCosto from "../models/CentroCosto.js";
 import EstadoIngresoManitou from "../models/EstadoIngresoManitou.js";
 import EstadoManitou, { ESTADOS_MANITOU } from "../models/EstadoManitou.js";
-import PesosManitou from "../models/PesosManitou.js";
-import FechaLimiteManitou from "../models/FechaLimiteManitou.js";
+import PesosManitou, { PesosTolva } from "../models/PesosManitou.js";
+import FechaLimiteManitou, { FechaLimiteTolva } from "../models/FechaLimiteManitou.js";
+import FechaLimiteEscaleras from "../models/FechaLimiteEscaleras.js";
 import {
   SECCIONES_MANITOU,
   SECCION_GENERAL,
@@ -13,6 +15,17 @@ import {
   seccionDeUnidad,
   unidadDeSeccion,
 } from "../catalogos/manitous.js";
+import {
+  EQUIPO_TOLVA,
+  GRUPO_TOLVA,
+  SECCION_GENERAL_TOLVAS,
+  SISTEMAS_TOLVA,
+  esSeccion,
+  esSeccionGeneral,
+  esSeccionTolvas,
+  seccionDeTolva,
+  tolvaDeSeccion,
+} from "../catalogos/tolvas.js";
 
 // Las tablas de cada sistema de las Manitous (06/10/2026). Desde el
 // 09/10/2026 Manitous › General es la plantilla: ahí se cargan los ítems y
@@ -20,8 +33,10 @@ import {
 // manitous.js). En cada Manitou se trabaja: OK, problemas, cantidades,
 // cotizar y pedir; los repuestos pedidos entran a Compras como un pedido de
 // San Pablo del grupo Manitou.
+//
+// Desde el 31/10/2026 las tolvas funcionan igual (catalogos/tolvas.js), con
+// sus propios sistemas: lo que dice Manitou abajo vale también para ellas.
 
-const SECCIONES = SECCIONES_MANITOU;
 const SISTEMAS = [
   "motor",
   "tren-delantero",
@@ -31,6 +46,7 @@ const SISTEMAS = [
   "sistema-electrico",
   "cabina",
 ];
+const sistemasDe = (seccion) => (esSeccionTolvas(seccion) ? SISTEMAS_TOLVA : SISTEMAS);
 const URGENCIAS = ["Baja", "Media", "Alta", "Crítica"];
 
 const limpiar = (v) => String(v ?? "").trim();
@@ -44,16 +60,35 @@ const claveDe = (fuente) => {
   const seccion = limpiar(fuente.seccion);
   const sistema = limpiar(fuente.sistema);
   if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
-  if (!SECCIONES.includes(seccion)) return { error: "Sección inválida" };
-  if (!SISTEMAS.includes(sistema)) return { error: "Sistema inválido" };
+  if (!esSeccion(seccion)) return { error: "Sección inválida" };
+  if (!sistemasDe(seccion).includes(sistema)) return { error: "Sistema inválido" };
   return { cosecha, seccion, sistema };
 };
 
 // ── General → cada Manitou ──
 
-const esGeneral = (fila) => fila.seccion === SECCION_GENERAL;
-const SOLO_GENERAL = "Los ítems y los repuestos se cargan en Manitous › General";
-const SOLO_UNIDAD = "General es la plantilla: esto se hace en cada Manitou";
+const esGeneral = (fila) => esSeccionGeneral(fila.seccion);
+const SOLO_GENERAL = "Los ítems y los repuestos se cargan en General";
+const SOLO_UNIDAD = "General es la plantilla: esto se hace en cada unidad";
+
+// A qué unidades se copia una fila de General: { seccion, cc }. Las Manitou
+// son fijas; las tolvas, las que tenga el padrón de CC.
+const unidadesDe = async (general) =>
+  general.seccion === SECCION_GENERAL_TOLVAS
+    ? (await CentroCosto.find({ equipo: EQUIPO_TOLVA }).select("cc").lean()).map((c) => ({
+        seccion: seccionDeTolva(c._id),
+        cc: c.cc,
+      }))
+    : UNIDADES_MANITOU.map((nro) => ({ seccion: seccionDeUnidad(nro), cc: nro }));
+
+// El C.C. de la unidad de una sección.
+const ccDeSeccion = async (seccion) => {
+  const id = tolvaDeSeccion(seccion);
+  return id ? (await CentroCosto.findById(id).select("cc").lean())?.cc ?? "" : unidadDeSeccion(seccion);
+};
+
+// El grupo de Compras de lo que sale de una sección.
+export const grupoDeSeccion = (seccion) => (esSeccionTolvas(seccion) ? GRUPO_TOLVA : "Manitou");
 
 // Los repuestos mandados a cotizar, de entre estos ids.
 // Sin ids no se consulta: cada viaje a la base cuenta (09/10/2026).
@@ -67,7 +102,7 @@ const cotizadosDe = async (ids) =>
 // cantidad es de cada Manitou y el C.C. es el de la unidad; lo pedido ya no
 // se toca, ni la descripción que se escribió en la Manitou. Un repuesto borrado en General se va de las copias, salvo que ya
 // se haya pedido o mandado a cotizar: ese queda suelto en su Manitou.
-export const replicar = async (general) => {
+export const replicar = async (general, unidades = null) => {
   const copias = await ChequeoSanPablo.find({ origen: general._id });
   const deGeneral = new Set(general.repuestos.map((r) => String(r._id)));
   const sobrantes = copias.flatMap((c) => c.repuestos.filter((r) => r.origen && !deGeneral.has(String(r.origen))));
@@ -76,8 +111,7 @@ export const replicar = async (general) => {
   // Las copias se arman en memoria y se guardan todas juntas, en paralelo:
   // de a una eran cinco viajes a la base seguidos (09/10/2026).
   const aGuardar = [];
-  for (const nro of UNIDADES_MANITOU) {
-    const seccion = seccionDeUnidad(nro);
+  for (const { seccion, cc } of unidades ?? (await unidadesDe(general))) {
     const copia =
       copias.find((c) => c.seccion === seccion) ||
       new ChequeoSanPablo({ cosecha: general.cosecha, seccion, sistema: general.sistema, origen: general._id });
@@ -94,7 +128,7 @@ export const replicar = async (general) => {
         descripcion: g.descripcion,
       };
       const r = copia.repuestos.find((x) => String(x.origen) === String(g._id));
-      if (!r) copia.repuestos.push({ ...datos, cant: g.cant, cc: nro, solicita: g.solicita, origen: g._id });
+      if (!r) copia.repuestos.push({ ...datos, cant: g.cant, cc, solicita: g.solicita, origen: g._id });
       // La descripción escrita en la Manitou queda como la dejaron ahí.
       else if (!r.pedido) {
         if (r.descripcionPropia) delete datos.descripcion;
@@ -109,6 +143,19 @@ export const replicar = async (general) => {
     if (copia.isNew || copia.isModified()) aGuardar.push(copia);
   }
   await Promise.all(aGuardar.map((c) => c.save()));
+};
+
+// Una tolva nueva en el padrón recibe lo que ya está cargado en General. Si
+// falla no voltea el alta del CC: cada fila se vuelve a copiar al editarla.
+export const sincronizarTolvas = async () => {
+  try {
+    const generales = await ChequeoSanPablo.find({ seccion: SECCION_GENERAL_TOLVAS });
+    if (!generales.length) return;
+    const unidades = await unidadesDe(generales[0]);
+    await Promise.all(generales.map((g) => replicar(g, unidades)));
+  } catch (error) {
+    console.error("No se pudo copiar la plantilla a la tolva nueva:", error.message);
+  }
 };
 
 // Al borrar una fila de General: sus copias se van, salvo las que tienen
@@ -164,7 +211,7 @@ const conProblemas = (fila) => {
 // Manitou, con los ocho sistemas, en un solo pedido.
 export const getChequeos = async (req, res) => {
   try {
-    const clave = req.query.sistema ? claveDe(req.query) : claveDe({ ...req.query, sistema: SISTEMAS[0] });
+    const clave = req.query.sistema ? claveDe(req.query) : claveDe({ ...req.query, sistema: sistemasDe(limpiar(req.query.seccion))[0] });
     if (!req.query.sistema && !clave.error) delete clave.sistema;
     if (clave.error) return res.status(400).json(clave);
     const filas = await ChequeoSanPablo.find(clave).sort({ createdAt: 1 }).lean();
@@ -178,7 +225,7 @@ export const createChequeo = async (req, res) => {
   try {
     const clave = claveDe(req.body);
     if (clave.error) return res.status(400).json(clave);
-    if (clave.seccion !== SECCION_GENERAL) return res.status(400).json({ error: SOLO_GENERAL });
+    if (!esSeccionGeneral(clave.seccion)) return res.status(400).json({ error: SOLO_GENERAL });
     const item = limpiar(req.body.item);
     if (!item) return res.status(400).json({ error: "Poné el ítem" });
     const fila = await ChequeoSanPablo.create({ ...clave, item, descripcion: limpiar(req.body.descripcion) });
@@ -191,7 +238,7 @@ export const createChequeo = async (req, res) => {
     } catch (error) {
       await ChequeoSanPablo.deleteMany({ origen: fila._id });
       await ChequeoSanPablo.deleteOne({ _id: fila._id });
-      return res.status(500).json({ error: `No se pudo copiar el ítem a las Manitou: ${error.message}. No se guardó.` });
+      return res.status(500).json({ error: `No se pudo copiar el ítem a las unidades: ${error.message}. No se guardó.` });
     }
     res.status(201).json(conProblemas(fila));
   } catch (error) {
@@ -236,7 +283,7 @@ export const updateChequeo = async (req, res) => {
     // No aplica se marca y se desmarca desde la Manitou (10/10/2026).
     if ("no_aplica" in body) fila.no_aplica = Boolean(body.no_aplica);
     if (fila.no_aplica && ["chequeado", "problema", "tarea", "reparaciones", "avance", "peso"].some((c) => c in body)) {
-      return res.status(400).json({ error: "Esta tarea no aplica a esta Manitou" });
+      return res.status(400).json({ error: "Esta tarea no aplica a esta unidad" });
     }
     if ("descripcion" in body) fila.descripcion = limpiar(body.descripcion);
     // Las reparaciones van como lista entera, sin las que no tienen problema.
@@ -412,7 +459,7 @@ const paraPedido = (r) => ({
   descripcion: r.descripcion,
 });
 
-const crearPedido = async (datos, solicita) =>
+const crearPedido = async (datos, solicita, grupo) =>
   new SanPabloPedido({
     fecha: hoyArgentina(),
     // El número lleva una R en Compras (SP-R045).
@@ -420,7 +467,7 @@ const crearPedido = async (datos, solicita) =>
     items: [
       {
         ...datos,
-        grupo: "Manitou",
+        grupo,
         origen: "reparaciones",
         ...(solicita ? { solicita } : {}),
         historial: [{ estado: "Para analisis", usuario: solicita || "Sistema", nota: "Pedido creado" }],
@@ -472,7 +519,7 @@ export const actualizarRepuesto = async (req, res) => {
         }
       }
     } else {
-      const { datos, error } = datosRepuesto(req.body, general ? "" : unidadDeSeccion(fila.seccion));
+      const { datos, error } = datosRepuesto(req.body, general ? "" : await ccDeSeccion(fila.seccion));
       if (error) return res.status(400).json({ error });
       Object.assign(repuesto, datos);
     }
@@ -480,7 +527,7 @@ export const actualizarRepuesto = async (req, res) => {
     if (req.body.pedir) {
       if (!(repuesto.cant > 0)) return res.status(400).json({ error: "Con cantidad 0 no se pide" });
       const solicita = limpiar(req.usuario?.nombre);
-      const pedido = await crearPedido(paraPedido(repuesto), solicita);
+      const pedido = await crearPedido(paraPedido(repuesto), solicita, grupoDeSeccion(fila.seccion));
       Object.assign(repuesto, { pedido: pedido._id, nro_pedido: pedido.nro_pedido, solicita, fecha: new Date() });
     }
     await fila.save();
@@ -519,7 +566,7 @@ export const getGastoReal = async (req, res) => {
     if (!Number.isInteger(cosecha)) return res.status(400).json({ error: "Cosecha inválida" });
     const filas = await ChequeoSanPablo.find({
       cosecha,
-      seccion: { $in: UNIDADES_MANITOU.map(seccionDeUnidad) },
+      seccion: esTolvas(req.query) ? /^tolva-/ : { $in: UNIDADES_MANITOU.map(seccionDeUnidad) },
       "repuestos.pedido": { $type: "objectId" },
     })
       .select("seccion sistema item repuestos")
@@ -549,7 +596,7 @@ export const getGastoReal = async (req, res) => {
       pedidos.map(({ f, r }) => {
         const ops = porPedido.get(String(r.pedido)) || [];
         return {
-          unidad: unidadDeSeccion(f.seccion),
+          unidad: unidadDeSeccion(f.seccion) ?? r.cc,
           sistema: f.sistema,
           item: f.item,
           repuesto: r._id,
@@ -573,10 +620,10 @@ const claveEstado = (fuente, conSistema) => {
   const cosecha = Number(fuente.cosecha);
   const seccion = limpiar(fuente.seccion);
   if (!Number.isInteger(cosecha) || cosecha < 2026) return { error: "Cosecha inválida" };
-  if (!unidadDeSeccion(seccion)) return { error: "Sección inválida" };
+  if (!esSeccion(seccion) || esSeccionGeneral(seccion)) return { error: "Sección inválida" };
   if (!conSistema) return { cosecha, seccion };
   const sistema = limpiar(fuente.sistema);
-  if (!SISTEMAS.includes(sistema)) return { error: "Sistema inválido" };
+  if (!sistemasDe(seccion).includes(sistema)) return { error: "Sistema inválido" };
   return { cosecha, seccion, sistema };
 };
 
@@ -617,11 +664,17 @@ export const saveEstadoIngreso = async (req, res) => {
 // ── Estado de la Manitou (11/10/2026) ──
 // En reparación o en espera, por cosecha. GET ?cosecha → [{ seccion, estado }]
 // de todas las Manitou; PUT { cosecha, seccion, estado } (null lo desmarca).
+//
+// En espera lleva el lugar que se le pone a mano (31/10/2026): el 2 de las 6
+// tolvas o de las 5 Manitou. Queda fijo, no se corre si otra sale, y no se repite.
+const totalEspera = async (seccion) =>
+  esSeccionTolvas(seccion) ? CentroCosto.countDocuments({ equipo: EQUIPO_TOLVA }) : UNIDADES_MANITOU.length;
+
 export const getEstadosManitou = async (req, res) => {
   try {
     const cosecha = Number(req.query.cosecha);
     if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
-    res.json(await EstadoManitou.find({ cosecha }).select("seccion estado").lean());
+    res.json(await EstadoManitou.find({ cosecha }).select("seccion estado orden").lean());
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -633,9 +686,25 @@ export const saveEstadoManitou = async (req, res) => {
     if (clave.error) return res.status(400).json(clave);
     const estado = req.body.estado || null;
     if (estado && !ESTADOS_MANITOU.includes(estado)) return res.status(400).json({ error: "Estado inválido" });
+    let orden = null;
+    if (estado === "espera" && req.body.orden !== undefined && req.body.orden !== null) {
+      orden = Number(req.body.orden);
+      const total = await totalEspera(clave.seccion);
+      if (!Number.isInteger(orden) || orden < 1 || orden > total) {
+        return res.status(400).json({ error: `El lugar va de 1 a ${total}` });
+      }
+      const familia = esSeccionTolvas(clave.seccion) ? /^tolva-/ : { $in: UNIDADES_MANITOU.map(seccionDeUnidad) };
+      const ocupado = await EstadoManitou.findOne({
+        cosecha: clave.cosecha,
+        estado: "espera",
+        orden,
+        $and: [{ seccion: familia }, { seccion: { $ne: clave.seccion } }],
+      }).lean();
+      if (ocupado) return res.status(400).json({ error: `El lugar ${orden} ya está ocupado` });
+    }
     const doc = await EstadoManitou.findOneAndUpdate(
       clave,
-      { $set: { estado } },
+      { $set: { estado, orden } },
       { upsert: true, new: true, runValidators: true }
     ).lean();
     res.json(doc);
@@ -649,13 +718,17 @@ export const saveEstadoManitou = async (req, res) => {
 // y el mismo para las cinco Manitou. GET ?cosecha → { pesos: { [sistema]: % } }
 // (vacío mientras no se cargó); PUT { cosecha, pesos }: todos los sistemas,
 // 0 o más, y que sumen 100.
+// Las tolvas van aparte (31/10/2026): ?familia=tolvas, o familia en el cuerpo.
+const esTolvas = (fuente) => fuente.familia === "tolvas";
+const modeloPesos = (fuente) => (esTolvas(fuente) ? PesosTolva : PesosManitou);
+
 const pesosComoObjeto = (doc) => Object.fromEntries(doc?.pesos ? Object.entries(doc.pesos) : []);
 
 export const getPesosManitou = async (req, res) => {
   try {
     const cosecha = Number(req.query.cosecha);
     if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
-    const doc = await PesosManitou.findOne({ cosecha }).lean();
+    const doc = await modeloPesos(req.query).findOne({ cosecha }).lean();
     res.json({ pesos: pesosComoObjeto(doc) });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -667,14 +740,14 @@ export const savePesosManitou = async (req, res) => {
     const cosecha = Number(req.body.cosecha);
     if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
     const pesos = {};
-    for (const sistema of SISTEMAS) {
+    for (const sistema of esTolvas(req.body) ? SISTEMAS_TOLVA : SISTEMAS) {
       const n = Number(req.body.pesos?.[sistema]);
       if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: "Cada sistema lleva un % de 0 o más" });
       pesos[sistema] = Math.round(n * 100) / 100;
     }
     const suma = Object.values(pesos).reduce((t, n) => t + n, 0);
     if (Math.abs(suma - 100) > 0.01) return res.status(400).json({ error: `Los pesos tienen que sumar 100% (suman ${suma}%)` });
-    const doc = await PesosManitou.findOneAndUpdate(
+    const doc = await modeloPesos(req.body).findOneAndUpdate(
       { cosecha },
       { $set: { pesos } },
       { upsert: true, new: true, runValidators: true }
@@ -698,10 +771,19 @@ const fechasLimite = (doc) => ({
 });
 const fmtFecha = (f) => f.toISOString().slice(0, 10).split("-").reverse().join("/");
 
+// La fecha total de las tolvas es la de Tolvas › General, en
+// FechaLimiteEscaleras; acá solo van las de cada tolva.
+const totalTolvas = async (cosecha) =>
+  (await FechaLimiteEscaleras.findOne({ cosecha }).select("tolvas").lean())?.tolvas ?? null;
+
 export const getFechaLimiteManitou = async (req, res) => {
   try {
     const cosecha = Number(req.query.cosecha);
     if (!Number.isInteger(cosecha) || cosecha < 2026) return res.status(400).json({ error: "Cosecha inválida" });
+    if (esTolvas(req.query)) {
+      const [doc, fecha] = await Promise.all([FechaLimiteTolva.findOne({ cosecha }).lean(), totalTolvas(cosecha)]);
+      return res.json({ ...fechasLimite(doc), fecha });
+    }
     res.json(fechasLimite(await FechaLimiteManitou.findOne({ cosecha }).lean()));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -715,6 +797,19 @@ export const saveFechaLimiteManitou = async (req, res) => {
     const fecha = req.body.fecha ? new Date(req.body.fecha) : null;
     if (fecha && Number.isNaN(fecha.getTime())) return res.status(400).json({ error: "Fecha inválida" });
     const { seccion } = req.body;
+    if (esTolvas(req.body)) {
+      if (!tolvaDeSeccion(seccion)) return res.status(400).json({ error: "Tolva inválida" });
+      const total = await totalTolvas(cosecha);
+      if (fecha && total && fecha > total) {
+        return res.status(400).json({ error: `No puede pasar la fecha límite de las Tolvas (${fmtFecha(total)})` });
+      }
+      const doc = await FechaLimiteTolva.findOneAndUpdate(
+        { cosecha },
+        { $set: { [`porManitou.${seccion}`]: fecha } },
+        { upsert: true, new: true, runValidators: true }
+      ).lean();
+      return res.json({ ...fechasLimite(doc), fecha: total });
+    }
     if (seccion && (seccion === SECCION_GENERAL || !SECCIONES_MANITOU.includes(seccion))) {
       return res.status(400).json({ error: "Manitou inválida" });
     }

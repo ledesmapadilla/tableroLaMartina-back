@@ -1,6 +1,7 @@
 import PresupuestoReparacion from "../models/PresupuestoReparacion.js";
 import ChequeoSanPablo from "../models/ChequeoSanPablo.js";
-import { SECCION_GENERAL } from "../catalogos/manitous.js";
+import { esSeccionGeneral } from "../catalogos/tolvas.js";
+import { grupoDeSeccion } from "./chequeossanpablo.controller.js";
 import { borrarArchivo, estaConfigurado } from "../services/cloudinary.service.js";
 
 // Presupuestos reparaciones (08/10/2026): los repuestos que el taller manda a
@@ -51,8 +52,8 @@ export const crear = async (req, res) => {
     const repuesto = fila?.repuestos.id(req.body.repuesto);
     if (!repuesto) return res.status(404).json({ error: "Repuesto no encontrado" });
     // General es la plantilla (09/10/2026): se cotiza en cada Manitou.
-    if (fila.seccion === SECCION_GENERAL) {
-      return res.status(400).json({ error: "General es la plantilla: se cotiza en cada Manitou" });
+    if (esSeccionGeneral(fila.seccion)) {
+      return res.status(400).json({ error: "General es la plantilla: se cotiza en cada unidad" });
     }
     if (!(repuesto.cant > 0)) return res.status(400).json({ error: "Con cantidad 0 no se cotiza" });
     const ya = await PresupuestoReparacion.findOne({ repuesto: repuesto._id }).lean();
@@ -69,6 +70,7 @@ export const crear = async (req, res) => {
       cant: repuesto.cant,
       unidad: repuesto.unidad,
       cc: repuesto.cc,
+      grupo: grupoDeSeccion(fila.seccion),
       descripcion: repuesto.descripcion,
       solicita: usuario,
       historial: [{ estado: "Para cotizar", usuario, nota: "Mandado a cotizar" }],

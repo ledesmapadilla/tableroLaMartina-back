@@ -17,6 +17,8 @@ import KilometroColectivo from "../models/KilometroColectivo.js";
 import { registrarAlta, registrarCambios, registrarBaja } from "./historialtractor.controller.js";
 import { esEquipo, grupoDeEquipo, flotaDeEquipo, cuentaKm } from "../catalogos/equipos.js";
 import { contarRenombre, aplicarRenombre, esCodigoFijo } from "../services/renombrarCC.service.js";
+import { sincronizarTolvas } from "./chequeossanpablo.controller.js";
+import { EQUIPO_TOLVA } from "../catalogos/tolvas.js";
 import mongoose from "mongoose";
 
 // El padrón de CC es la única puerta de entrada (15/09/2026). Un CC cuyo
@@ -82,8 +84,11 @@ const crearUnidad = async (centro, { gruppo } = {}) => {
         unidad: cuentaKm(equipo) ? "km" : "hs",
         gruppo,
       });
-      await registrarAlta(tractor);
-    } else if (gruppo && tractor.gruppo !== gruppo) {
+      centro.tractor = tractor._id;
+      await Promise.all([registrarAlta(tractor), centro.save()]);
+      return;
+    }
+    if (gruppo && tractor.gruppo !== gruppo) {
       // Uno que vuelve (por ejemplo, desde "En desuso") va al grupo elegido.
       const anterior = tractor.toObject();
       tractor.gruppo = gruppo;
@@ -233,6 +238,7 @@ export const create = async (req, res) => {
         .status(400)
         .json({ error: `No se pudo agregar a ${pantallaDeEquipo(equipo)}: ${error.message}` });
     }
+    if (equipo === EQUIPO_TOLVA) await sincronizarTolvas();
     res.status(201).json(centro);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -330,6 +336,7 @@ export const update = async (req, res) => {
           .json({ error: `No se pudo agregar a ${pantallaDeEquipo(centro.equipo)}: ${error.message}` });
       }
     }
+    if (centro.equipo === EQUIPO_TOLVA && actual.equipo !== EQUIPO_TOLVA) await sincronizarTolvas();
     res.json(centro);
   } catch (error) {
     res.status(400).json({ error: error.message });
