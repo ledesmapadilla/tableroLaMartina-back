@@ -87,7 +87,7 @@ const minutosDelTramo = (horaIngreso, horaEgreso) => {
 
 // Único campo que no se carga a mano: la suma de los dos tramos del día. El
 // segundo es el de San Pablo, que corta al mediodía; vacío no suma nada.
-const calcularTotalHoras = (body) => {
+export const calcularTotalHoras = (body) => {
   const minutos =
     minutosDelTramo(body.horaIngreso, body.horaEgreso) +
     minutosDelTramo(body.horaIngreso2, body.horaEgreso2);

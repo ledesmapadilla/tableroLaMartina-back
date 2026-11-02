@@ -29,6 +29,7 @@ import variablesRouter from "./variables.routes.js";
 import lotesRouter from "./lotes.routes.js";
 import admisiblesRouter from "./admisibles.routes.js";
 import descuentosRouter from "./descuentos.routes.js";
+import jornalizadosRouter from "./jornalizados.routes.js";
 import cambiosRouter from "./cambios.routes.js";
 import pendientesRouter from "./pendientes.routes.js";
 import ingresosSanPabloRouter from "./ingresossanpablo.routes.js";
@@ -166,6 +167,9 @@ router.use("/tareas", escribirSi(["altas.tareas"]), tareasRouter);
 router.use("/clientes", escribirSi(["altas.clientes"]), clientesRouter);
 router.use("/partes", escribirSi(["produccion.certificacion"]), partesRouter);
 router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter);
+// Los jornalizados (02/11/2026): se cargan desde la planilla de partes, con
+// su mismo permiso.
+router.use("/jornalizados", escribirSi(["produccion.certificacion"]), jornalizadosRouter);
 router.use("/variables", escribirSi(["produccion.variables"]), variablesRouter);
 // Los lotes son una de las tres tarjetas de Variables, con su propio permiso.
 router.use("/lotes", escribirSi(["produccion.lotes"]), lotesRouter);

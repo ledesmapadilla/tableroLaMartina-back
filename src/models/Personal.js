@@ -1,9 +1,14 @@
 import { Schema, model } from "mongoose";
 
-// Personal de Producción. El apellido y el nombre van juntos en un solo campo,
-// que es como se lo carga y se lo busca en la planilla.
+// Personal de Producción. Desde el 02/11/2026 el apellido y el nombre se
+// cargan por separado; `apellidoNombre` ("Apellido, Nombre") lo arma el
+// controlador al guardar y es lo que leen todas las pantallas, así que nada
+// más cambió. Motor Generador y Uso interno no tienen apellido ni nombre: van
+// solo con `apellidoNombre`, como siempre.
 const PersonalSchema = new Schema(
   {
+    apellido: { type: String, trim: true, default: "" },
+    nombre: { type: String, trim: true, default: "" },
     apellidoNombre: { type: String, required: true, trim: true },
     // El DNI y el legajo son datos de referencia: hay gente que se carga sin
     // tenerlos a mano, así que ninguno de los dos es obligatorio.
