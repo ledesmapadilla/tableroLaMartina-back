@@ -1,7 +1,10 @@
 import mongoose from 'mongoose'
 import { archivoAdjuntoSchema } from './archivoAdjunto.js'
+import { EQUIPOS } from '../catalogos/equipos.js'
 
-const GRUPOS = ['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Tolvas', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros']
+// Los grupos fijos más los del catálogo de equipos (03/11/2026): un equipo
+// nuevo en catalogos/equipos.js tiene que poder pedirse sin tocar esta lista.
+const GRUPOS = [...new Set(['Pulverizadora', 'Chancho', 'Nodriza', 'Desmalezadora', 'Herbicida', 'Abonadora', 'Riego', 'Arquito', 'Tractores', 'Camioneta', 'Manitou', 'Tolvas', 'Colectivos', 'Taller', 'Herreria', 'Gomeria', 'Stock', 'Otros', ...EQUIPOS.map((e) => e.grupo)])]
 
 const historialItemSchema = new mongoose.Schema({
   fecha:   { type: Date, default: Date.now },
