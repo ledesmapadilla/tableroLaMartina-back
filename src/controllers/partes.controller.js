@@ -15,6 +15,7 @@ import {
   referenciasDeLotes,
   cierresDeLotes,
   desmalezadoFueraDeUnidad,
+  lotesConMedidasMezcladas,
   esTareaDeLote,
 } from "../services/repartoLotes.service.js";
 import {
@@ -552,6 +553,11 @@ const rechazoDelParte = async (body, { tareaDelPadron, ok }) => {
   const lotes = lotesDelCuerpo(body);
   if (lotes && (!tareaDelPadron || !esTareaDeLote(tareaDelPadron.tarea))) {
     return { status: 400, cuerpo: { error: VARIOS_LOTES_SOLO_POR_LOTE } };
+  }
+  // Varios lotes, todos con la misma medida: plantas o hectáreas (04/11/2026).
+  if (lotes) {
+    const mezclados = await lotesConMedidasMezcladas(body, lotes.map((l) => l.lote));
+    if (mezclados) return { status: 400, cuerpo: { error: mezclados } };
   }
   // Con varios lotes, cada uno tiene que ir con la medida de la tarea.
   for (const lote of lotes ? lotes.map((l) => l.lote) : [body.lote]) {

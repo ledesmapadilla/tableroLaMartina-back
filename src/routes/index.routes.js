@@ -21,6 +21,7 @@ import repuestosTractorRouter from "./repuestostractor.routes.js";
 import centrosCostoRouter from "./centroscosto.routes.js";
 import personalRouter from "./personal.routes.js";
 import tareasRouter from "./tareas.routes.js";
+import guiaTareasRouter from "./guiaTareas.routes.js";
 import clientesRouter from "./clientes.routes.js";
 import gasoilRouter from "./gasoil.routes.js";
 import partesRouter from "./partes.routes.js";
@@ -164,6 +165,9 @@ router.use("/visitas", visitasRouter);
 router.use("/centros-costo", escribirSi(["altas.centrosCosto"]), centrosCostoRouter);
 router.use("/personal", escribirSi(["altas.personal"]), personalRouter);
 router.use("/tareas", escribirSi(["altas.tareas"]), tareasRouter);
+// La guía de tareas (04/11/2026): el "?" de Tarea en la planilla de carga.
+// Agregar un trabajo pide lo mismo que dar de alta una tarea.
+router.use("/guia-tareas", escribirSi(["altas.tareas"]), guiaTareasRouter);
 router.use("/clientes", escribirSi(["altas.clientes"]), clientesRouter);
 router.use("/partes", escribirSi(["produccion.certificacion"]), partesRouter);
 router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter);

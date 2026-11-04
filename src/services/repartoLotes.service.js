@@ -88,6 +88,32 @@ export const desmalezadoFueraDeUnidad = async ({ establecimiento, lote }, tareaD
   return null;
 };
 
+/**
+ * Varios lotes en un mismo parte tienen que estar medidos en la misma unidad
+ * (04/11/2026): uno en plantas y otro en hectáreas no se pueden sumar ni
+ * repartir juntos. Van en partes separados, uno por unidad. Los lotes sin
+ * medida o fuera del padrón no se controlan. Devuelve el mensaje de error o
+ * null.
+ */
+export const lotesConMedidasMezcladas = async ({ establecimiento }, nombres) => {
+  if (!Array.isArray(nombres) || nombres.length < 2) return null;
+  const padron = await Lote.find({ establecimiento }).select("nombre hectareas plantas").lean();
+  const enPlantas = [];
+  const enHectareas = [];
+  for (const nombre of nombres) {
+    const delPadron = padron.find((l) => comparable(l.nombre) === comparable(nombre));
+    if (!delPadron) continue;
+    if (delPadron.plantas != null && delPadron.hectareas == null) enPlantas.push(delPadron.nombre);
+    if (delPadron.hectareas != null && delPadron.plantas == null) enHectareas.push(delPadron.nombre);
+  }
+  if (!enPlantas.length || !enHectareas.length) return null;
+  return (
+    "No se pueden cargar juntos lotes en plantas y en hectáreas. " +
+    `Cargá un parte para los de plantas (${enPlantas.join(", ")}) ` +
+    `y otro para los de hectáreas (${enHectareas.join(", ")}).`
+  );
+};
+
 export const esTareaDeLote = (nombre) => {
   const n = sinAcentos(nombre);
   return TAREAS_POR_LOTE.some((t) => n.includes(t));
