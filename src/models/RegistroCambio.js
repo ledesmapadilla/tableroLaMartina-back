@@ -41,11 +41,14 @@ const RegistroCambioSchema = new Schema({
   usuario: { type: String, default: "" },
   nombre: { type: String, default: "" },
   rol: { type: String, default: "" },
-  accion: { type: String, enum: ["alta", "cambio", "baja", "login"], required: true },
+  // "vista" (05/11/2026): una pantalla que abrió, la anota el front al navegar.
+  accion: { type: String, enum: ["alta", "cambio", "baja", "login", "vista"], required: true },
   metodo: { type: String, required: true },
   // La sección es lo que sigue a /api (partes, gasoil, op…); la ruta, entera.
   seccion: { type: String, default: "" },
   ruta: { type: String, default: "" },
+  // En una vista, el nombre de la pantalla para leer (Compras › Gasoil › San Pablo).
+  pantalla: { type: String, default: "" },
   estado: { type: Number, default: null },
   ok: { type: Boolean, default: true },
   error: { type: String, default: "" },

@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import EnvioReciente, { VENTANA_ENVIO_MS } from "../models/EnvioReciente.js";
 
 // Los POST que no son altas: repetirlos no guarda nada dos veces.
-const NO_SON_ALTAS = [/^\/api\/auth\//, /^\/api\/horometros-tractor\/validar$/];
+const NO_SON_ALTAS = [/^\/api\/auth\//, /^\/api\/horometros-tractor\/validar$/, /^\/api\/registro\/vista$/];
 
 // Cuánto espera un reintento a que termine el envío original.
 const ESPERA_MAX_MS = 15 * 1000;

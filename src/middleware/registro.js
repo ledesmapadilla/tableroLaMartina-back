@@ -46,7 +46,8 @@ const errorDe = (cuerpo) => {
  */
 export const registrarCambios = (req, res, next) => {
   const accion = ACCION[req.method];
-  if (!accion) return next();
+  // Las vistas de pantalla las anota su propia ruta, no como un alta.
+  if (!accion || req.originalUrl.startsWith("/api/registro/vista")) return next();
 
   const registro = { cambios: [] };
   const enviar = res.send.bind(res);

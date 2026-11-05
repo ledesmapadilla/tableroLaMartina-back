@@ -50,6 +50,7 @@ import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
 import registroRouter from "./registro.routes.js";
+import { registrarVista } from "../controllers/registro.controller.js";
 import { verificarToken, soloRoles } from "../middleware/auth.js";
 import { escribirSi } from "../middleware/permisos.js";
 import { registrarCambios } from "../middleware/registro.js";
@@ -219,6 +220,10 @@ router.use("/archivos", archivosRouter);
 
 // Qué ve y qué edita cada rol (Altas › Usuarios › Roles).
 router.use("/roles", rolesRouter);
+
+// Cada pantalla que abre cualquier usuario logueado (05/11/2026). Va antes
+// del registro, que solo lo mira el superadmin.
+router.post("/registro/vista", registrarVista);
 
 // El registro de cambios: solo lo mira el superadmin.
 router.use("/registro", soloRoles("superadmin"), registroRouter);
