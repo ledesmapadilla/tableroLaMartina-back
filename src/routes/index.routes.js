@@ -46,6 +46,7 @@ import usuariosRouter from "./usuario.routes.js";
 import proveedoresRouter from "./proveedor.routes.js";
 import berdinaPedidosRouter from "./berdinaPedido.routes.js";
 import archivosRouter from "./archivos.routes.js";
+import contableRouter from "./contable.routes.js";
 import sanPabloPedidosRouter from "./sanPabloPedido.routes.js";
 import opRouter from "./op.routes.js";
 import rolesRouter from "./roles.routes.js";
@@ -182,6 +183,9 @@ router.use("/lotes", escribirSi(["produccion.lotes"]), lotesRouter);
 router.use("/admisibles", escribirSi(["produccion.admisibles"]), admisiblesRouter);
 router.use("/descuentos", escribirSi(["produccion.contable"]), descuentosRouter);
 router.use("/cambios", escribirSi(["produccion.contable"]), cambiosRouter);
+// Contable (05/11/2026): la tabla de cada mes y las equivalencias de tareas.
+// Cada una pide su permiso ruta por ruta, en contable.routes.js.
+router.use("/contable", contableRouter);
 // Los pendientes de la reunión: se cargan y se borran desde ahí.
 router.use("/pendientes", escribirSi(["tablero.reunion"]), pendientesRouter);
 // Ingresos al taller de San Pablo (Manitous y las demás tarjetas).

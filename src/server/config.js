@@ -15,7 +15,9 @@ export default class Server {
 
   middleware() {
     this.app.use(cors());
-    this.app.use(express.json());
+    // 4 MB y no los 100 kB de fábrica (05/11/2026): la tabla de Contable llega
+    // entera, con todas las filas del Excel del mes. Vercel corta en 4,5 MB.
+    this.app.use(express.json({ limit: "4mb" }));
     // morgan escribe una linea por request; en serverless eso es I/O de log
     // en el camino critico de cada invocacion.
     if (process.env.NODE_ENV !== "production") {

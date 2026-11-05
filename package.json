@@ -21,7 +21,8 @@
     "equipo-grupo-cc": "node --env-file .env scripts/equipoYGrupoCC.js",
     "probar-cloudinary": "node --env-file .env scripts/probarCloudinary.js",
     "inventario-cloudinary": "node --env-file .env scripts/inventarioCloudinary.js",
-    "probar-adjunto": "node --env-file .env scripts/probarAdjunto.js"
+    "probar-adjunto": "node --env-file .env scripts/probarAdjunto.js",
+    "berdina-contable": "node --env-file .env scripts/berdinaEnContable.js"
   },
   "type": "module",
   "keywords": [],

@@ -56,6 +56,10 @@ export const PERMISOS_HOY = {
   "produccion.informeMes": SIN_SOLICITANTE,
   "produccion.contable": CONTABLE,
 
+  // Contable (05/11/2026): la tarjeta de la principal y el Excel mensual.
+  "contable.excel": CONTABLE,
+  "contable.equivalencias": CONTABLE,
+
   // Altas
   "altas.centrosCosto": SIN_SOLICITANTE,
   "altas.proveedores": SIN_SOLICITANTE,
