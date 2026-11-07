@@ -82,7 +82,31 @@ export const getAll = async (req, res) => {
 
     // Las tareas borradas dejan cargas huérfanas: no se devuelven, la pantalla
     // arma el listado a partir del padrón de tareas.
-    res.json(variables.filter((v) => v.tarea));
+    const propias = variables.filter((v) => v.tarea);
+
+    // Las que cobran lo mismo que otra ("Mismo precio que", 07/11/2026) no
+    // tienen precios propios: van con una copia de cada carga de la otra, con
+    // su tarea y marcada con `heredadaDe`. Así todo lo que calcula con
+    // precios (certificados, Pagos, la comparativa) las ve sin tocar nada, y
+    // al cambiar el precio de la otra cambia el de estas.
+    const conMismoPrecio = await Tarea.find({ mismoPrecioQue: { $ne: null } })
+      .select("tarea unidad empresa mismoPrecioQue")
+      .lean();
+    const heredadas = [];
+    for (const t of conMismoPrecio) {
+      const deLaOtra = propias.filter((v) => String(v.tarea._id) === String(t.mismoPrecioQue));
+      for (const v of deLaOtra) {
+        heredadas.push({
+          ...v,
+          _id: `${v._id}-${t._id}`,
+          tarea: { _id: t._id, tarea: t.tarea, unidad: t.unidad, empresa: t.empresa },
+          heredadaDe: { _id: v.tarea._id, tarea: v.tarea.tarea, carga: v._id },
+        });
+      }
+    }
+    // Sin las cargas que tuviera la tarea antes de tomar el precio de otra.
+    const tomanDeOtra = new Set(conMismoPrecio.map((t) => String(t._id)));
+    res.json([...propias.filter((v) => !tomanDeOtra.has(String(v.tarea._id))), ...heredadas]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -96,8 +120,14 @@ export const create = async (req, res) => {
     if (!mongoose.isValidObjectId(tarea)) {
       return res.status(400).json({ error: "Hay que elegir la tarea" });
     }
-    if (!(await Tarea.exists({ _id: tarea }))) {
+    const laTarea = await Tarea.findById(tarea).select("mismoPrecioQue").populate("mismoPrecioQue", "tarea").lean();
+    if (!laTarea) {
       return res.status(404).json({ error: "La tarea no está dada de alta" });
+    }
+    if (laTarea.mismoPrecioQue) {
+      return res.status(400).json({
+        error: `Esta tarea tiene el mismo precio que «${laTarea.mismoPrecioQue.tarea || "otra tarea"}»: el precio se carga en esa`,
+      });
     }
 
     const datos = armarDatos(req.body);

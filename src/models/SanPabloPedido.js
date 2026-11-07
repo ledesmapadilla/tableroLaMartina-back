@@ -97,7 +97,8 @@ pedidoSchema.index({ 'items.estado': 1 })
 
 pedidoSchema.pre('save', async function () {
   if (this.isNew && !this.nro_pedido) {
-    const last = await mongoose.model('SanPabloPedido').findOne({ nro_pedido: { $exists: true } }).sort({ nro_pedido: -1 })
+    // Solo el número, no el pedido entero con sus ítems e historial (06/11/2026).
+    const last = await mongoose.model('SanPabloPedido').findOne({ nro_pedido: { $exists: true } }, { nro_pedido: 1 }).sort({ nro_pedido: -1 }).lean()
     this.nro_pedido = last?.nro_pedido ? last.nro_pedido + 1 : 1
   }
 })

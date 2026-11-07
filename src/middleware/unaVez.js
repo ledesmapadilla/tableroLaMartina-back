@@ -95,10 +95,12 @@ export const unaVez = async (req, res, next) => {
             }
           )
         : EnvioReciente.deleteOne({ _id });
-    guardar
-      .catch((error) => console.error("No se pudo anotar el envío:", error.message))
-      .finally(() => enviar(cuerpo));
-    return res;
+    // No se espera acá: el registro de cambios (que va por debajo) guarda su
+    // renglón a la vez y manda la respuesta cuando terminaron los dos
+    // (06/11/2026). Antes iban uno después del otro: un viaje más a la base
+    // en cada alta. Las dos cosas siguen guardadas antes de responder.
+    res.locals.anotarAntes = guardar.catch((error) => console.error("No se pudo anotar el envío:", error.message));
+    return enviar(cuerpo);
   };
   next();
 };

@@ -5,8 +5,8 @@ import mongoose from "mongoose";
  *
  * Las de Citrusvil son los textos de "Detalle de tarea" del Excel mensual de
  * Contable (FilaContable.tarea); las de La Martina, las de Altas › Tareas. Una
- * tarea de La Martina junta varias de Citrusvil, y cada una de Citrusvil va
- * con una sola de La Martina: el controlador no deja repetirla.
+ * tarea de La Martina junta varias de Citrusvil, y desde el 06/11/2026 una de
+ * Citrusvil puede estar en varias de La Martina (siempre en la misma unidad).
  */
 const equivalenciaTareaSchema = new mongoose.Schema(
   {

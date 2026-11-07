@@ -177,7 +177,8 @@ export const deleteTareaCitrusvil = async (req, res) => {
  * PUT /api/contable/equivalencias/:tareaId  { citrusvil: [texto], observaciones }
  *
  * Guarda las tareas de Citrusvil que equivalen a esa tarea de La Martina. Una
- * de Citrusvil que ya está con otra tarea no se deja: 409 con cuáles son.
+ * de Citrusvil puede estar en varias tareas de La Martina (06/11/2026); lo
+ * que no se deja es que vaya en otra unidad.
  */
 export const putEquivalencia = async (req, res) => {
   const { tareaId } = req.params;
@@ -189,28 +190,15 @@ export const putEquivalencia = async (req, res) => {
   for (const c of citrusvil.map((x) => String(x).trim()).filter(Boolean)) if (!porClave.has(clave(c))) porClave.set(clave(c), c);
   const lista = [...porClave.values()];
   try {
-    // Los controles van juntos: la base tarda en contestar y de a uno
-    // sumaban segundos (05/11/2026). Las equivalencias son pocas: se traen
-    // todas y la tarea ya usada se busca por clave, no por el texto exacto.
-    const [tareaLM, unidades, otras] = await Promise.all([
+    // Los controles van juntos: la base tarda en contestar (05/11/2026).
+    const [tareaLM, unidades] = await Promise.all([
       Tarea.findById(tareaId).select("tarea unidad").lean(),
       unidadesDe(lista),
-      lista.length ? EquivalenciaTarea.find({ tarea: { $ne: tareaId } }).populate("tarea", "tarea").lean() : [],
     ]);
     if (!tareaLM) return res.status(404).json({ error: "La tarea no existe." });
-    const ocupadas = otras
-      .map((o) => ({ ...o, citrusvil: (o.citrusvil || []).filter((c) => porClave.has(clave(c))) }))
-      .filter((o) => o.citrusvil.length);
 
     const distintas = conOtraUnidad(lista, tareaLM, unidades);
     if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, tareaLM) });
-
-    if (ocupadas.length) {
-      const detalle = ocupadas
-        .flatMap((o) => o.citrusvil.map((c) => `«${c}» ya está en ${o.tarea?.tarea || "otra tarea"}`))
-        .join("; ");
-      return res.status(409).json({ error: `Cada tarea de Citrusvil va con una sola de La Martina: ${detalle}.` });
-    }
 
     const obs = observaciones ? String(observaciones).trim() : "";
     // Sin nada tildado ni observaciones, no queda equivalencia que guardar.
@@ -230,55 +218,52 @@ export const putEquivalencia = async (req, res) => {
 };
 
 /**
- * PUT /api/contable/equivalencias-ctv  { nombre, tarea }
+ * PUT /api/contable/equivalencias-ctv  { nombre, tareas: [id] }
  *
- * La equivalencia vista desde Citrusvil (la solapa Ctv → LM): pone la tarea
- * de Citrusvil `nombre` con la tarea de La Martina `tarea`, sacándola de la
- * que tuviera antes. Con `tarea` vacía, la deja sin equivalencia. Una
- * equivalencia que queda sin tareas ni observaciones se borra.
+ * La equivalencia vista desde Citrusvil (la solapa Ctv → LM): la tarea de
+ * Citrusvil `nombre` queda en exactamente esas tareas de La Martina (puede
+ * ser más de una, 06/11/2026) y sale de las demás. Con la lista vacía queda
+ * sin equivalencia. Una equivalencia que queda sin tareas ni observaciones se
+ * borra. Todas tienen que ir en la misma unidad que la de Citrusvil.
+ *
+ * Acepta también `tarea` (una sola), como antes.
  */
 export const putEquivalenciaCtv = async (req, res) => {
   const pedido = String(req.body?.nombre || "").trim();
-  const tarea = req.body?.tarea || null;
+  const crudas = Array.isArray(req.body?.tareas) ? req.body.tareas : req.body?.tarea ? [req.body.tarea] : [];
+  const tareas = [...new Set(crudas.map(String).filter(Boolean))];
   if (!pedido) return res.status(400).json({ error: "Falta la tarea de Citrusvil." });
-  if (tarea && !mongoose.isValidObjectId(tarea)) return res.status(400).json({ error: "Tarea inválida." });
+  if (tareas.some((t) => !mongoose.isValidObjectId(t))) return res.status(400).json({ error: "Tarea inválida." });
   try {
-    const [tareaLM, unidades, nombres] = await Promise.all([
-      tarea ? Tarea.findById(tarea).select("tarea unidad").lean() : null,
-      tarea ? unidadesDe([pedido]) : new Map(),
+    const [tareasLM, unidades, nombres] = await Promise.all([
+      tareas.length ? Tarea.find({ _id: { $in: tareas } }).select("tarea unidad").lean() : [],
+      tareas.length ? unidadesDe([pedido]) : new Map(),
       nombresCitrusvil(),
     ]);
     // Con el nombre que manda para esa clave (05/11/2026): una variante
     // escrita distinto cae en la misma tarea.
     const nombre = nombres.get(clave(pedido)) || pedido;
-    if (tarea) {
-      if (!tareaLM) return res.status(404).json({ error: "La tarea no existe." });
-      const distintas = conOtraUnidad([pedido], tareaLM, unidades);
-      if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, tareaLM) });
+    if (tareasLM.length !== tareas.length) return res.status(404).json({ error: "Alguna tarea no existe." });
+    for (const t of tareasLM) {
+      const distintas = conOtraUnidad([pedido], t, unidades);
+      if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, t) });
     }
 
-    // Las tres escrituras en un solo viaje a la base, en orden: se saca de
-    // donde estuviera (menos de la nueva), se pone en la nueva y se borran
-    // las que quedaron vacías, que ya no son equivalencia.
+    // Las escrituras en un solo viaje a la base, en orden: se saca de las que
+    // no van, se pone en cada una de las que van y se borran las que quedaron
+    // vacías, que ya no son equivalencia.
+    const ids = tareas.map((t) => new mongoose.Types.ObjectId(t));
     await EquivalenciaTarea.bulkWrite(
       [
         {
           updateMany: {
-            filter: { citrusvil: nombre, ...(tarea ? { tarea: { $ne: new mongoose.Types.ObjectId(tarea) } } : {}) },
+            filter: { citrusvil: nombre, tarea: { $nin: ids } },
             update: { $pull: { citrusvil: nombre } },
           },
         },
-        ...(tarea
-          ? [
-              {
-                updateOne: {
-                  filter: { tarea: new mongoose.Types.ObjectId(tarea) },
-                  update: { $addToSet: { citrusvil: nombre } },
-                  upsert: true,
-                },
-              },
-            ]
-          : []),
+        ...ids.map((id) => ({
+          updateOne: { filter: { tarea: id }, update: { $addToSet: { citrusvil: nombre } }, upsert: true },
+        })),
         {
           deleteMany: {
             filter: { citrusvil: { $size: 0 }, $or: [{ observaciones: { $exists: false } }, { observaciones: "" }] },

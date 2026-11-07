@@ -61,7 +61,7 @@ export const registrarCambios = (req, res, next) => {
     // En el login todavía no hay sesión: el nombre y el rol salen de la
     // respuesta (el token no se guarda).
     const quien = esLogin ? (ok ? respuestaDe(cuerpo) : {}) : req.usuario || {};
-    RegistroCambio.create({
+    const renglon = RegistroCambio.create({
       fecha: new Date(),
       usuario: esLogin ? String(req.body?.usuario || "") : quien.usuario || "",
       nombre: quien.nombre || "",
@@ -76,9 +76,10 @@ export const registrarCambios = (req, res, next) => {
       datos: esLogin || !req.body || !Object.keys(req.body).length ? null : aTexto(limpiar(req.body)),
       cambios: registro.cambios,
       ip: String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim(),
-    })
-      .catch((error) => console.error("No se pudo anotar en el registro de cambios:", error.message))
-      .finally(() => enviar(cuerpo));
+    }).catch((error) => console.error("No se pudo anotar en el registro de cambios:", error.message));
+    // Junto con lo que anota el anti-duplicado (unaVez.js), a la vez y no uno
+    // después del otro (06/11/2026). La respuesta sale cuando están los dos.
+    Promise.all([renglon, res.locals.anotarAntes]).finally(() => enviar(cuerpo));
     return res;
   };
   contexto.run(registro, next);
