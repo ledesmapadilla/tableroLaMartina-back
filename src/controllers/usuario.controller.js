@@ -1,4 +1,10 @@
 import Usuario from "../models/Usuario.js";
+import Rol, { ROLES } from "../models/Rol.js";
+
+// El rol tiene que ser uno fijo o uno creado desde Nuevo rol (07/11/2026):
+// el modelo ya no trae la lista.
+const rolValido = async (rol) =>
+  ROLES.includes(rol) || Boolean(await Rol.exists({ rol, personalizado: true }));
 
 export const getAll = async (req, res) => {
   try {
@@ -11,6 +17,7 @@ export const getAll = async (req, res) => {
 
 export const crear = async (req, res) => {
   try {
+    if (!(await rolValido(req.body?.rol))) return res.status(400).json({ error: "Ese rol no existe." });
     const nuevo = await Usuario.create(req.body);
     res.status(201).json(nuevo);
   } catch (error) {
@@ -20,6 +27,9 @@ export const crear = async (req, res) => {
 
 export const actualizar = async (req, res) => {
   try {
+    if (req.body?.rol !== undefined && !(await rolValido(req.body.rol))) {
+      return res.status(400).json({ error: "Ese rol no existe." });
+    }
     const updated = await Usuario.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json(updated);
   } catch (error) {

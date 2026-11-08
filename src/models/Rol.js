@@ -1,8 +1,10 @@
 import mongoose from "mongoose";
 
-// Los mismos roles que Usuario. Si se suma uno, va también en el enum de
-// Usuario y en las listas de permisos (acá, permisos/catalogo.js y, en el
-// front, utils/permisos.js y NOMBRES_ROL).
+// Los roles fijos, los que vienen de Compras. Si se suma uno fijo, va también
+// en las listas de permisos (acá, permisos/catalogo.js y, en el front,
+// utils/permisos.js y NOMBRES_ROL). Los que se crean desde Altas › Usuarios ›
+// Nuevo rol (07/11/2026) no van en ninguna lista: viven en esta colección con
+// `personalizado: true` y su nombre.
 export const ROLES = ["superadmin", "solicitante", "comprador", "analista", "gerente", "celular", "liquidacion", "supervisor"];
 
 // Un permiso: una pantalla o tarjeta del proyecto (la clave sale de
@@ -20,13 +22,21 @@ const permisoSchema = new mongoose.Schema(
 
 /**
  * Lo que puede cada rol. Lo edita el superadmin desde Altas › Usuarios ›
- * Roles. Un rol sin documento, o una pantalla que no figura en él, conserva
- * el acceso que tenía antes de que existieran los permisos (lo resuelve el
- * front). El superadmin puede todo y no se guarda.
+ * Roles. Un rol fijo sin documento, o una pantalla que no figura en él,
+ * conserva el acceso que tenía antes de que existieran los permisos (lo
+ * resuelve el front). El superadmin puede todo y no se guarda.
+ *
+ * Un rol nuevo (personalizado, 07/11/2026) nace sin nada, como celular o
+ * supervisor, salvo que se lo cree copiando los permisos de otro. Las cosas
+ * que dependen del nombre del rol (lo que hace el comprador, el analista, el
+ * gerente…) siguen siendo de los fijos: el nuevo solo ve y edita pantallas.
  */
 const rolSchema = new mongoose.Schema(
   {
-    rol: { type: String, enum: ROLES, required: true, unique: true },
+    // Fijo, o la clave de uno nuevo: minúsculas, números y guiones.
+    rol: { type: String, required: true, unique: true, trim: true, match: /^[a-z0-9][a-z0-9-]*$/ },
+    nombre: { type: String, trim: true, default: "" },
+    personalizado: { type: Boolean, default: false },
     permisos: { type: [permisoSchema], default: [] },
   },
   { timestamps: true }

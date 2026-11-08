@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { soloRoles } from "../middleware/auth.js";
-import { getAll, getMio, update } from "../controllers/roles.controller.js";
+import { create, getAll, getMio, remove, update } from "../controllers/roles.controller.js";
 
 const router = Router();
 
@@ -9,5 +9,9 @@ const router = Router();
 router.get("/mio", getMio);
 router.get("/", soloRoles("superadmin"), getAll);
 router.put("/:rol", soloRoles("superadmin"), update);
+// Los roles nuevos (07/11/2026): crearlos desde Altas › Usuarios › Nuevo rol y
+// borrarlos desde Roles, si no tienen usuarios.
+router.post("/", soloRoles("superadmin"), create);
+router.delete("/:rol", soloRoles("superadmin"), remove);
 
 export default router;
