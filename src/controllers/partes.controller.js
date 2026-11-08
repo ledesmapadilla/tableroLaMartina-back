@@ -404,7 +404,8 @@ export const getAll = async (req, res) => {
     // sirven los horarios, los horómetros ni el combustible. Con ?resumen=1 se
     // le manda lo justo, que es la mitad del cuerpo y sin hidratar documentos.
     // Las horas y el lote van porque el informe muestra cómo se repartió la
-    // medida de un lote terminado (18/09/2026).
+    // medida de un lote terminado (18/09/2026). Los litros (combustible y
+    // combTurbo) van para el gasoil de Contable › Costos (07/11/2026).
     // batchSize alto: el cursor trae de a 101 documentos por defecto, así que
     // un mes de partes son dos idas y vueltas al cluster en vez de una. Con la
     // latencia que hay (unos 70 ms por viaje) eso solo costaba ~90 ms.
@@ -412,7 +413,7 @@ export const getAll = async (req, res) => {
     const partes =
       req.query.resumen === "1"
         ? await consulta
-            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote lotes terminado repartido pagoDe provisorio")
+            .select("fecha persona tarea cantidad cliente turbo cc totalHoras lote lotes terminado repartido pagoDe provisorio combustible combTurbo")
             .populate([
               { path: "persona", select: "apellidoNombre legajo usoInterno" },
               { path: "cc", select: "cc" },

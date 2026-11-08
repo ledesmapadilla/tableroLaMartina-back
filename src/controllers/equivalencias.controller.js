@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import EquivalenciaTarea from "../models/EquivalenciaTarea.js";
+import EquivalenciaCostos from "../models/EquivalenciaCostos.js";
 import FilaContable from "../models/FilaContable.js";
 import Tarea from "../models/Tarea.js";
 import TareaCitrusvil from "../models/TareaCitrusvil.js";
@@ -19,8 +20,9 @@ const limpiar = (t) => String(t || "").trim().replace(/\s+/g, " ");
  * cada fila con el nombre que ya existe.
  */
 export const nombresCitrusvil = async () => {
-  const [equivalencias, agregadas, deExcel] = await Promise.all([
+  const [equivalencias, costos, agregadas, deExcel] = await Promise.all([
     EquivalenciaTarea.find({}).select("citrusvil").lean(),
+    EquivalenciaCostos.find({}).select("nombre").lean(),
     TareaCitrusvil.find({}).select("nombre").lean(),
     FilaContable.distinct("tarea"),
   ]);
@@ -30,6 +32,7 @@ export const nombresCitrusvil = async () => {
     if (k && !nombres.has(k)) nombres.set(k, n);
   };
   for (const e of equivalencias) for (const c of e.citrusvil || []) sumar(c);
+  for (const c of costos) sumar(c.nombre);
   for (const a of agregadas) sumar(a.nombre);
   for (const n of [...deExcel].sort()) sumar(n);
   return nombres;
@@ -106,18 +109,21 @@ const mensajeOtraUnidad = (distintas, tareaLM) =>
 
 /**
  * GET /api/contable/equivalencias
- * → { equivalencias: [{ tarea, citrusvil, observaciones }], citrusvil: [{ nombre, unidad, origen }] }
+ * → { equivalencias: [{ tarea, citrusvil, observaciones }], citrusvil: [{ nombre, unidad, origen }],
+ *     costos: [{ nombre, tareas: [id] }] }
  *
  * `citrusvil` son todas las tareas de Citrusvil, las de las tablas mensuales
- * y las agregadas a mano: las que hay para tildar.
+ * y las agregadas a mano: las que hay para tildar. `costos`, las de Citrusvil
+ * que en la Comparativa de costos van con otras tareas (EquivalenciaCostos).
  */
 export const getEquivalencias = async (req, res) => {
   try {
-    const [equivalencias, citrusvil] = await Promise.all([
+    const [equivalencias, citrusvil, costos] = await Promise.all([
       EquivalenciaTarea.find({}).select("tarea citrusvil observaciones").lean(),
       listarCitrusvil(),
+      EquivalenciaCostos.find({}).select("nombre tareas").lean(),
     ]);
-    res.json({ equivalencias, citrusvil });
+    res.json({ equivalencias, citrusvil, costos });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -160,11 +166,17 @@ export const deleteTareaCitrusvil = async (req, res) => {
   try {
     const tarea = await TareaCitrusvil.findById(id).lean();
     if (!tarea) return res.status(404).json({ error: "La tarea no existe." });
-    const usada = await EquivalenciaTarea.findOne({ citrusvil: tarea.nombre }).populate("tarea", "tarea").lean();
+    const [usada, enCostos] = await Promise.all([
+      EquivalenciaTarea.findOne({ citrusvil: tarea.nombre }).populate("tarea", "tarea").lean(),
+      EquivalenciaCostos.exists({ nombre: tarea.nombre }),
+    ]);
     if (usada) {
       return res
         .status(409)
         .json({ error: `Está en la equivalencia de ${usada.tarea?.tarea || "otra tarea"}: primero hay que destildarla.` });
+    }
+    if (enCostos) {
+      return res.status(409).json({ error: "Tiene una equivalencia para costos: primero hay que sacarla." });
     }
     await TareaCitrusvil.deleteOne({ _id: id });
     res.json({ ok: true });
@@ -271,6 +283,47 @@ export const putEquivalenciaCtv = async (req, res) => {
         },
       ],
       { ordered: true }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PUT /api/contable/equivalencias-costos  { nombre, tareas: [id] }
+ *
+ * La equivalencia de la tarea de Citrusvil `nombre` solo para la Comparativa
+ * de costos (07/11/2026): ahí va con esas tareas de La Martina en vez de las
+ * de siempre. Con la lista vacía se borra y en costos vuelve a ir con las de
+ * siempre. Todas en la misma unidad que la de Citrusvil.
+ */
+export const putEquivalenciaCostos = async (req, res) => {
+  const pedido = String(req.body?.nombre || "").trim();
+  const crudas = Array.isArray(req.body?.tareas) ? req.body.tareas : [];
+  const tareas = [...new Set(crudas.map(String).filter(Boolean))];
+  if (!pedido) return res.status(400).json({ error: "Falta la tarea de Citrusvil." });
+  if (tareas.some((t) => !mongoose.isValidObjectId(t))) return res.status(400).json({ error: "Tarea inválida." });
+  try {
+    const [tareasLM, unidades, nombres] = await Promise.all([
+      tareas.length ? Tarea.find({ _id: { $in: tareas } }).select("tarea unidad").lean() : [],
+      tareas.length ? unidadesDe([pedido]) : new Map(),
+      nombresCitrusvil(),
+    ]);
+    const nombre = nombres.get(clave(pedido)) || pedido;
+    if (tareasLM.length !== tareas.length) return res.status(404).json({ error: "Alguna tarea no existe." });
+    for (const t of tareasLM) {
+      const distintas = conOtraUnidad([pedido], t, unidades);
+      if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, t) });
+    }
+    if (!tareas.length) {
+      await EquivalenciaCostos.deleteOne({ nombre });
+      return res.json({ ok: true });
+    }
+    await EquivalenciaCostos.updateOne(
+      { nombre },
+      { nombre, tareas: tareas.map((t) => new mongoose.Types.ObjectId(t)) },
+      { upsert: true, runValidators: true }
     );
     res.json({ ok: true });
   } catch (error) {

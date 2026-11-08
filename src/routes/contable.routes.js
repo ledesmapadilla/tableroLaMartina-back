@@ -5,9 +5,11 @@ import {
   putEquivalencia,
   deleteEquivalencia,
   putEquivalenciaCtv,
+  putEquivalenciaCostos,
   postTareaCitrusvil,
   deleteTareaCitrusvil,
 } from "../controllers/equivalencias.controller.js";
+import { gasoil, dolar } from "../controllers/preciosContable.controller.js";
 import { escribirSi } from "../middleware/permisos.js";
 
 const router = Router();
@@ -37,9 +39,23 @@ router.put("/equivalencias/:tareaId", EQUIVALENCIAS, putEquivalencia);
 router.delete("/equivalencias/:tareaId", EQUIVALENCIAS, deleteEquivalencia);
 // Lo mismo visto desde Citrusvil: con qué tarea de La Martina va cada una.
 router.put("/equivalencias-ctv", EQUIVALENCIAS, putEquivalenciaCtv);
+// La de una tarea de Citrusvil solo para la Comparativa de costos (07/11/2026).
+router.put("/equivalencias-costos", EQUIVALENCIAS, putEquivalenciaCostos);
 
 // Las tareas de Citrusvil agregadas a mano (las demás salen de los Excel).
 router.post("/tareas-citrusvil", EQUIVALENCIAS, postTareaCitrusvil);
 router.delete("/tareas-citrusvil/:id", EQUIVALENCIAS, deleteTareaCitrusvil);
+
+// El precio del gasoil y el del dólar con su fecha (07/11/2026), arriba de la
+// tabla de Equivalencias tareas/variables. Uno por fecha.
+for (const [ruta, c] of [
+  ["/gasoil", gasoil],
+  ["/dolar", dolar],
+]) {
+  router.get(ruta, c.getAll);
+  router.put(ruta, EQUIVALENCIAS, c.put);
+  router.put(`${ruta}/:id`, EQUIVALENCIAS, c.update);
+  router.delete(`${ruta}/:id`, EQUIVALENCIAS, c.remove);
+}
 
 export default router;
