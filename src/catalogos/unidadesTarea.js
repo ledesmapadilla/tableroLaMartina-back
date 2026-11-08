@@ -17,17 +17,32 @@ const A_LA_MARTINA = new Map(
   Object.entries(EQUIVALENTES).flatMap(([unidad, formas]) => formas.map((f) => [f, unidad]))
 );
 
-/**
- * La unidad de una tarea de Citrusvil con el nombre de La Martina: "HRA" y
- * "H" son Horas, "PLA" Plantas, "TAN" Tancadas, "HA" Hectárea. Una que no se
- * reconoce queda como vino.
- */
-export const unidadLaMartina = (unidad) => {
-  if (!unidad) return unidad || "";
-  const forma = String(unidad)
+/** La unidad como se compara: "Hrs." → "HRS". */
+export const formaUnidad = (unidad) =>
+  String(unidad || "")
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toUpperCase()
     .replace(/[^A-Z]/g, "");
-  return A_LA_MARTINA.get(forma) || String(unidad).trim();
+
+/**
+ * La unidad de La Martina de una forma, o null si no se reconoce. `extras` son
+ * las equivalencias cargadas a mano (EquivalenciaUnidad, 08/11/2026): Map
+ * forma → unidad.
+ */
+export const unidadConocida = (unidad, extras) => {
+  const forma = formaUnidad(unidad);
+  if (!forma) return null;
+  const deLaMartina = UNIDADES_LA_MARTINA.find((u) => formaUnidad(u) === forma);
+  return A_LA_MARTINA.get(forma) || deLaMartina || extras?.get(forma) || null;
+};
+
+/**
+ * La unidad de una tarea de Citrusvil con el nombre de La Martina: "HRA" y
+ * "H" son Horas, "PLA" Plantas, "TAN" Tancadas, "HA" Hectárea, más las
+ * cargadas a mano (`extras`). Una que no se reconoce queda como vino.
+ */
+export const unidadLaMartina = (unidad, extras) => {
+  if (!unidad) return unidad || "";
+  return unidadConocida(unidad, extras) || String(unidad).trim();
 };

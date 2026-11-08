@@ -4,10 +4,38 @@ import EquivalenciaCostos from "../models/EquivalenciaCostos.js";
 import FilaContable from "../models/FilaContable.js";
 import Tarea from "../models/Tarea.js";
 import TareaCitrusvil from "../models/TareaCitrusvil.js";
-import { unidadLaMartina } from "../catalogos/unidadesTarea.js";
+import EquivalenciaUnidad from "../models/EquivalenciaUnidad.js";
+import { UNIDADES_LA_MARTINA, formaUnidad, unidadConocida, unidadLaMartina } from "../catalogos/unidadesTarea.js";
 import { claveTarea as clave } from "../catalogos/claveTarea.js";
 
 const limpiar = (t) => String(t || "").trim().replace(/\s+/g, " ");
+
+/**
+ * Las unidades de Citrusvil cargadas a mano (08/11/2026), las que no están en
+ * catalogos/unidadesTarea.js. → Map forma → unidad de La Martina
+ */
+const unidadesExtra = async () =>
+  new Map((await EquivalenciaUnidad.find({}).select("forma unidad").lean()).map((e) => [e.forma, e.unidad]));
+
+/**
+ * Los nombres de las tareas de Citrusvil (de los Excel y agregadas) que vienen
+ * en esa unidad (su forma: "JOR").
+ */
+const tareasEnUnidad = async (forma) => {
+  const [filas, agregadas] = await Promise.all([
+    FilaContable.aggregate([
+      { $match: { unidad: { $nin: [null, ""] } } },
+      { $group: { _id: "$unidad", tareas: { $addToSet: "$tarea" } } },
+    ]),
+    TareaCitrusvil.find({ unidad: { $nin: [null, ""] } }).select("nombre unidad").lean(),
+  ]);
+  return [
+    ...new Set([
+      ...filas.filter((u) => formaUnidad(u._id) === forma).flatMap((u) => u.tareas),
+      ...agregadas.filter((a) => formaUnidad(a.unidad) === forma).map((a) => a.nombre),
+    ]),
+  ].filter(Boolean);
+};
 
 /**
  * El nombre con el que queda cada tarea de Citrusvil, por su clave (sin
@@ -46,25 +74,32 @@ export const nombresCitrusvil = async () => {
  * → [{ nombre, unidad, origen: "excel" | "agregada", _id? }]
  */
 const listarCitrusvil = async () => {
-  const [deExcel, agregadas, nombres] = await Promise.all([
+  const [deExcel, agregadas, nombres, extras] = await Promise.all([
     FilaContable.aggregate([
       { $match: { tarea: { $nin: [null, ""] } } },
       { $group: { _id: "$tarea", unidad: { $first: "$unidad" } } },
     ]),
     TareaCitrusvil.find({}).select("nombre unidad").lean(),
     nombresCitrusvil(),
+    unidadesExtra(),
   ]);
   const porClave = new Map();
   // La unidad, con el nombre de La Martina ("HRA" → Horas, "PLA" → Plantas).
+  // Una que no se reconoce queda como vino y marcada `unidadNueva`: hasta que
+  // se diga a cuál equivale, esa tarea no se puede unir (08/11/2026).
+  const conUnidad = (u) => ({
+    unidad: unidadLaMartina(u, extras),
+    ...(u && !unidadConocida(u, extras) ? { unidadNueva: true } : {}),
+  });
   for (const t of deExcel) {
     const k = clave(t._id);
     if (!k || porClave.has(k)) continue;
-    porClave.set(k, { nombre: nombres.get(k) || t._id, unidad: unidadLaMartina(t.unidad), origen: "excel" });
+    porClave.set(k, { nombre: nombres.get(k) || t._id, ...conUnidad(t.unidad), origen: "excel" });
   }
   for (const a of agregadas) {
     const k = clave(a.nombre);
     if (!k || porClave.has(k)) continue;
-    porClave.set(k, { _id: a._id, nombre: nombres.get(k) || a.nombre, unidad: unidadLaMartina(a.unidad), origen: "agregada" });
+    porClave.set(k, { _id: a._id, nombre: nombres.get(k) || a.nombre, ...conUnidad(a.unidad), origen: "agregada" });
   }
   return [...porClave.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 };
@@ -89,17 +124,35 @@ const conOtraUnidad = (nombres, tareaLM, unidades) => {
  * guardar, sin armar el listado entero (05/11/2026: guardar tardaba).
  */
 const unidadesDe = async (nombres) => {
-  if (!nombres.length) return new Map();
-  const [deExcel, agregadas] = await Promise.all([
+  const unidades = new Map();
+  // Las que van en una unidad que todavía no tiene equivalencia: nombre → unidad.
+  unidades.nuevas = new Map();
+  if (!nombres.length) return unidades;
+  const [deExcel, agregadas, extras] = await Promise.all([
     FilaContable.aggregate([
       { $match: { tarea: { $in: nombres } } },
       { $group: { _id: "$tarea", unidad: { $first: "$unidad" } } },
     ]),
     TareaCitrusvil.find({ nombre: { $in: nombres } }).select("nombre unidad").lean(),
+    unidadesExtra(),
   ]);
-  const unidades = new Map(agregadas.map((a) => [a.nombre, unidadLaMartina(a.unidad)]));
-  for (const t of deExcel) unidades.set(t._id, unidadLaMartina(t.unidad));
+  // Manda la del Excel sobre la agregada, como antes.
+  for (const t of [...agregadas.map((a) => ({ _id: a.nombre, unidad: a.unidad })), ...deExcel]) {
+    unidades.set(t._id, unidadLaMartina(t.unidad, extras));
+    if (t.unidad && !unidadConocida(t.unidad, extras)) unidades.nuevas.set(t._id, String(t.unidad).trim());
+    else unidades.nuevas.delete(t._id);
+  }
   return unidades;
+};
+
+/** El error si alguna de `nombres` va en una unidad sin equivalencia, o null. */
+const conUnidadNueva = (nombres, unidades) => {
+  const nuevas = nombres.filter((n) => unidades.nuevas?.has(n));
+  if (!nuevas.length) return null;
+  return (
+    nuevas.map((n) => `«${n}» va en «${unidades.nuevas.get(n)}»`).join(", ") +
+    ", una unidad nueva: primero hay que decir a qué unidad de La Martina equivale (arriba, en Unidades nuevas de Citrusvil)."
+  );
 };
 
 const mensajeOtraUnidad = (distintas, tareaLM) =>
@@ -115,15 +168,18 @@ const mensajeOtraUnidad = (distintas, tareaLM) =>
  * `citrusvil` son todas las tareas de Citrusvil, las de las tablas mensuales
  * y las agregadas a mano: las que hay para tildar. `costos`, las de Citrusvil
  * que en la Comparativa de costos van con otras tareas (EquivalenciaCostos).
+ * `unidades`, las unidades de Citrusvil nuevas y las ya cargadas
+ * (estadoUnidades).
  */
 export const getEquivalencias = async (req, res) => {
   try {
-    const [equivalencias, citrusvil, costos] = await Promise.all([
+    const [equivalencias, citrusvil, costos, unidades] = await Promise.all([
       EquivalenciaTarea.find({}).select("tarea citrusvil observaciones").lean(),
       listarCitrusvil(),
       EquivalenciaCostos.find({}).select("nombre tareas").lean(),
+      estadoUnidades(),
     ]);
-    res.json({ equivalencias, citrusvil, costos });
+    res.json({ equivalencias, citrusvil, costos, unidades });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -139,14 +195,16 @@ export const getEquivalencias = async (req, res) => {
 export const postTareaCitrusvil = async (req, res) => {
   const nombre = limpiar(req.body?.nombre);
   // Con las unidades de La Martina, igual que las que vienen de los Excel.
-  const unidad = unidadLaMartina(limpiar(req.body?.unidad));
+  const crudaUnidad = limpiar(req.body?.unidad);
   if (!nombre) return res.status(400).json({ error: "Falta el nombre de la tarea." });
   if (nombre.length > 150) return res.status(400).json({ error: "El nombre no puede pasar de 150 caracteres." });
   if (!clave(nombre)) return res.status(400).json({ error: "El nombre tiene que tener letras o números." });
   try {
     // Ya existe si coincide la clave: sin mayúsculas, acentos, espacios ni signos.
-    const ya = (await listarCitrusvil()).find((t) => clave(t.nombre) === clave(nombre));
+    const [lista, extras] = await Promise.all([listarCitrusvil(), unidadesExtra()]);
+    const ya = lista.find((t) => clave(t.nombre) === clave(nombre));
     if (ya) return res.status(400).json({ error: `Ya existe la tarea «${ya.nombre}».` });
+    const unidad = unidadLaMartina(crudaUnidad, extras);
     const tarea = await TareaCitrusvil.create({ nombre, unidad, creadaPor: req.usuario?.usuario });
     res.status(201).json(tarea);
   } catch (error) {
@@ -209,6 +267,8 @@ export const putEquivalencia = async (req, res) => {
     ]);
     if (!tareaLM) return res.status(404).json({ error: "La tarea no existe." });
 
+    const nueva = conUnidadNueva(lista, unidades);
+    if (nueva) return res.status(400).json({ error: nueva });
     const distintas = conOtraUnidad(lista, tareaLM, unidades);
     if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, tareaLM) });
 
@@ -256,6 +316,8 @@ export const putEquivalenciaCtv = async (req, res) => {
     // escrita distinto cae en la misma tarea.
     const nombre = nombres.get(clave(pedido)) || pedido;
     if (tareasLM.length !== tareas.length) return res.status(404).json({ error: "Alguna tarea no existe." });
+    const nueva = conUnidadNueva([pedido], unidades);
+    if (nueva) return res.status(400).json({ error: nueva });
     for (const t of tareasLM) {
       const distintas = conOtraUnidad([pedido], t, unidades);
       if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, t) });
@@ -312,6 +374,8 @@ export const putEquivalenciaCostos = async (req, res) => {
     ]);
     const nombre = nombres.get(clave(pedido)) || pedido;
     if (tareasLM.length !== tareas.length) return res.status(404).json({ error: "Alguna tarea no existe." });
+    const nueva = conUnidadNueva([pedido], unidades);
+    if (nueva) return res.status(400).json({ error: nueva });
     for (const t of tareasLM) {
       const distintas = conOtraUnidad([pedido], t, unidades);
       if (distintas.length) return res.status(400).json({ error: mensajeOtraUnidad(distintas, t) });
@@ -337,6 +401,109 @@ export const deleteEquivalencia = async (req, res) => {
   if (!mongoose.isValidObjectId(tareaId)) return res.status(400).json({ error: "Tarea inválida." });
   try {
     await EquivalenciaTarea.deleteOne({ tarea: tareaId });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Unidades de Citrusvil nuevas (08/11/2026) ──
+
+/**
+ * Las unidades de Citrusvil que no se reconocen (las nuevas, con sus tareas)
+ * y las que ya se cargaron a mano.
+ * → { nuevas: [{ forma, unidad, tareas: [nombre] }], cargadas: [{ _id, forma, unidad }] }
+ */
+async function estadoUnidades() {
+  const [deExcel, agregadas, cargadas] = await Promise.all([
+    FilaContable.aggregate([
+      { $match: { unidad: { $nin: [null, ""] } } },
+      { $group: { _id: "$unidad", tareas: { $addToSet: "$tarea" } } },
+    ]),
+    TareaCitrusvil.find({ unidad: { $nin: [null, ""] } }).select("nombre unidad").lean(),
+    EquivalenciaUnidad.find({}).select("forma unidad").sort({ forma: 1 }).lean(),
+  ]);
+  const extras = new Map(cargadas.map((e) => [e.forma, e.unidad]));
+  const nuevas = new Map();
+  const sumar = (unidad, tareas) => {
+    if (unidadConocida(unidad, extras)) return;
+    const forma = formaUnidad(unidad);
+    if (!forma) return;
+    const n = nuevas.get(forma) || { forma, unidad: String(unidad).trim(), tareas: [] };
+    for (const t of tareas) if (t && !n.tareas.includes(t)) n.tareas.push(t);
+    nuevas.set(forma, n);
+  };
+  for (const u of deExcel) sumar(u._id, u.tareas);
+  for (const a of agregadas) sumar(a.unidad, [a.nombre]);
+  for (const n of nuevas.values()) n.tareas.sort((a, b) => a.localeCompare(b, "es"));
+  return { nuevas: [...nuevas.values()], cargadas };
+}
+
+/** GET /api/contable/unidades → estadoUnidades. Lo pide la pantalla del mes al cargar un Excel. */
+export const getUnidades = async (req, res) => {
+  try {
+    res.json(await estadoUnidades());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PUT /api/contable/unidades  { forma, unidad }
+ *
+ * Dice a qué unidad de La Martina equivale una unidad de Citrusvil que no se
+ * reconocía. Si ya tenía, la cambia. Las del catálogo fijo (HRA, PLA…) no se
+ * tocan.
+ */
+export const putUnidad = async (req, res) => {
+  const forma = formaUnidad(req.body?.forma);
+  const unidad = String(req.body?.unidad || "").trim();
+  if (!forma) return res.status(400).json({ error: "Falta la unidad de Citrusvil." });
+  if (!UNIDADES_LA_MARTINA.includes(unidad)) return res.status(400).json({ error: "La unidad de La Martina no es válida." });
+  const fija = unidadConocida(forma);
+  if (fija) return res.status(400).json({ error: `«${forma}» ya equivale a ${fija}: no se puede cambiar.` });
+  try {
+    // Si una tarea en esa unidad ya está en una equivalencia (porque se la
+    // cambia de una a otra), con la nueva unidad quedaría mal: no se deja.
+    const nombres = await tareasEnUnidad(forma);
+    if (nombres.length) {
+      const enUso = await EquivalenciaTarea.find({ citrusvil: { $in: nombres } }).populate("tarea", "tarea unidad").lean();
+      const mal = enUso.filter((e) => e.tarea && unidadLaMartina(e.tarea.unidad) !== unidad);
+      if (mal.length) {
+        return res.status(409).json({
+          error: `Con ${unidad} no coincidiría con ${mal.map((e) => e.tarea.tarea).join(", ")}, que ya tiene tareas en «${forma}»: primero sacá esas equivalencias.`,
+        });
+      }
+    }
+    await EquivalenciaUnidad.updateOne(
+      { forma },
+      { forma, unidad, creadaPor: req.usuario?.usuario },
+      { upsert: true, runValidators: true }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/** DELETE /api/contable/unidades/:id: la unidad vuelve a quedar sin equivalencia. */
+export const deleteUnidad = async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: "Unidad inválida." });
+  try {
+    const doc = await EquivalenciaUnidad.findById(id).lean();
+    if (!doc) return res.status(404).json({ error: "La unidad no existe." });
+    // Si alguna tarea en esa unidad ya está en una equivalencia, quedaría
+    // unida sin unidad conocida: no se deja.
+    const nombres = await tareasEnUnidad(doc.forma);
+    const usada = nombres.length
+      ? (await EquivalenciaTarea.exists({ citrusvil: { $in: nombres } })) ||
+        (await EquivalenciaCostos.exists({ nombre: { $in: nombres } }))
+      : null;
+    if (usada) {
+      return res.status(409).json({ error: `Hay tareas en «${doc.forma}» con equivalencia: primero hay que sacarlas.` });
+    }
+    await EquivalenciaUnidad.deleteOne({ _id: id });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

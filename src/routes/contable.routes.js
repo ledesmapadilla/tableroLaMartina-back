@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getExcel, deleteExcel, getFilas, putFilas, deleteFilas, getEstado } from "../controllers/contable.controller.js";
+import { getFilas, putFilas, deleteFilas, getEstado } from "../controllers/contable.controller.js";
 import {
   getEquivalencias,
   putEquivalencia,
@@ -8,6 +8,9 @@ import {
   putEquivalenciaCostos,
   postTareaCitrusvil,
   deleteTareaCitrusvil,
+  getUnidades,
+  putUnidad,
+  deleteUnidad,
 } from "../controllers/equivalencias.controller.js";
 import { gasoil, dolar } from "../controllers/preciosContable.controller.js";
 import { escribirSi } from "../middleware/permisos.js";
@@ -21,16 +24,11 @@ const EQUIVALENCIAS = escribirSi(["contable.equivalencias"]);
 // La tabla de cada mes de Contable (05/11/2026), armada desde el Excel
 // mensual. El Excel no se guarda: solo sus filas. Una tabla no se pisa: para
 // subir otro Excel primero se borra.
-// Si el mes tiene tabla o un Excel viejo por pasar, sin traer las filas.
+// Si el mes tiene tabla, sin traer las filas.
 router.get("/estado/:anio/:mes", getEstado);
 router.get("/filas/:anio/:mes", getFilas);
 router.put("/filas/:anio/:mes", EXCEL, putFilas);
 router.delete("/filas/:anio/:mes", EXCEL, deleteFilas);
-
-// El Excel que se subió a Cloudinary antes de eso (octubre de 2026): se lee
-// para pasarlo a la tabla y se borra.
-router.get("/excel/:anio/:mes", getExcel);
-router.delete("/excel/:anio/:mes", EXCEL, deleteExcel);
 
 // Equivalencias de tareas (05/11/2026): qué tareas de Citrusvil equivalen a
 // cada tarea de La Martina.
@@ -45,6 +43,13 @@ router.put("/equivalencias-costos", EQUIVALENCIAS, putEquivalenciaCostos);
 // Las tareas de Citrusvil agregadas a mano (las demás salen de los Excel).
 router.post("/tareas-citrusvil", EQUIVALENCIAS, postTareaCitrusvil);
 router.delete("/tareas-citrusvil/:id", EQUIVALENCIAS, deleteTareaCitrusvil);
+
+// Las unidades de Citrusvil que no se reconocían y a cuál de La Martina
+// equivalen (08/11/2026). Una unidad nueva del Excel se deja cargar y acá se
+// dice a cuál equivale.
+router.get("/unidades", getUnidades);
+router.put("/unidades", EQUIVALENCIAS, putUnidad);
+router.delete("/unidades/:id", EQUIVALENCIAS, deleteUnidad);
 
 // El precio del gasoil y el del dólar con su fecha (07/11/2026), arriba de la
 // tabla de Equivalencias tareas/variables. Uno por fecha.
