@@ -25,6 +25,11 @@ const JornalizadoSchema = new Schema(
     // El ayudamemoria, como en los partes: se guarda con fecha y personal y se
     // completa después. Mientras tanto a esa persona no se le carga otro día.
     provisorio: { type: Boolean, default: false },
+
+    // Colchón de horas (08/11/2026), solo en Berdina: el mismo círculo
+    // "Colch. Hs." de la planilla de partes: cuenta las horas del total del día (totalHoras).
+    // Prendido, la tarea realizada es obligatoria también en un provisorio.
+    colchonHs: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

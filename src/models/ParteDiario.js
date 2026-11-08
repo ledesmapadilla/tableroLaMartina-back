@@ -110,6 +110,12 @@ const ParteDiarioSchema = new Schema(
     // provisorios de un solo día a la vez en cada campo (ver
     // `diaProvisorioPendiente` en partes.controller.js).
     provisorio: { type: Boolean, default: false },
+
+    // Colchón de horas (08/11/2026): el círculo "Colch. Hs." de la planilla,
+    // solo en Berdina y en la tarea Horas La Martina. Con él prendido las observaciones
+    // son obligatorias y la cantidad se ve resaltada. Es un contador: dónde se
+    // usa todavía está por definir.
+    colchonHs: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -28,6 +28,7 @@ const HORARIOS = ["horaIngreso", "horaEgreso", "horaIngreso2", "horaEgreso2"];
 const conPersona = (consulta) => consulta.populate({ path: "persona", select: "apellidoNombre legajo" });
 
 const esProvisorio = (body) => body.provisorio === true || body.provisorio === "true";
+const esColchonHs = (body) => body.colchonHs === true || body.colchonHs === "true";
 const diaDe = (fecha) => (fecha ? new Date(fecha).toISOString().slice(0, 10) : "");
 
 // Lo que se guarda, ya validado. Devuelve { error } o { datos }.
@@ -38,7 +39,9 @@ const armarDatos = (body) => {
   if (!DIA.test(dia)) falta.push("la fecha");
   if (!body.persona) falta.push("el personal");
 
-  const datos = { fecha: new Date(dia), persona: body.persona, provisorio };
+  // Colch. Hs. solo en Berdina (08/11/2026): en San Pablo queda apagado.
+  const colchonHs = esColchonHs(body) && establecimientoDe(body.establecimiento) !== "san-pablo";
+  const datos = { fecha: new Date(dia), persona: body.persona, provisorio, colchonHs };
   for (const campo of HORARIOS) {
     const valor = String(body[campo] || "").trim();
     if (valor && !HORA.test(valor)) return { error: "Hay un horario que no es una hora (HH:mm)" };
@@ -51,6 +54,10 @@ const armarDatos = (body) => {
       (datos.horaIngreso && datos.horaEgreso) || (datos.horaIngreso2 && datos.horaEgreso2);
     if (!tramoCompleto) falta.push("un horario completo (entrada y salida)");
     if (!datos.tarea) falta.push("la tarea realizada");
+  } else if (datos.colchonHs && !datos.tarea) {
+    // Con Colch. Hs. la tarea realizada va siempre, como las observaciones
+    // en los partes (08/11/2026).
+    falta.push("la tarea realizada (con Colch. Hs. es obligatoria)");
   }
   if (falta.length) return { error: `Falta ${falta.join(", ")}` };
 
@@ -145,6 +152,8 @@ export const update = async (req, res) => {
     ]);
     if (!anterior) return res.status(404).json({ error: "No existe ese jornalizado" });
     if (!persona) return res.status(400).json({ error: "Ese personal no existe" });
+    // Manda el campo guardado: en San Pablo no hay Colch. Hs.
+    if (anterior.establecimiento === "san-pablo") datos.colchonHs = false;
 
     // Corregir uno completo de otro día sin cambiarle la fecha ni la persona
     // no es cargar un día: se deja, como en los partes.

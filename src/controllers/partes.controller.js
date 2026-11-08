@@ -293,6 +293,7 @@ const armarDatos = (body, anterior = null) => {
       : Number(body[campo]);
   });
   datos.provisorio = esProvisorio(body);
+  datos.colchonHs = esColchonHs(body);
   // Un provisorio no da un lote por terminado: eso dispara el pago.
   datos.terminado = Boolean(body.terminado) && !datos.provisorio;
   // Varios lotes en el día (07/10/2026): `lote` queda como la lista escrita y
@@ -594,6 +595,23 @@ const rechazoDeUsoInterno = (body, ok) => {
   return null;
 };
 
+// Colchón de horas (08/11/2026): el círculo "Colch. Hs." de la planilla. Solo
+// en Berdina (en San Pablo se guarda siempre apagado), solo con la tarea Horas
+// La Martina (por el nombre, sin mayúsculas, acentos ni espacios) y con
+// observaciones, también en un provisorio.
+const esColchonHs = (body) => body.colchonHs === true || body.colchonHs === "true";
+const esHorasLaMartina = (nombre) => sinAcentos(nombre).replace(/[^a-z]/g, "") === "horaslamartina";
+
+const rechazoDelColchon = async (body) => {
+  if (!esColchonHs(body)) return null;
+  if (!String(body.observacion || "").trim()) return "Con Colch. Hs. las observaciones son obligatorias.";
+  const tarea = mongoose.isValidObjectId(body.tarea)
+    ? await Tarea.findById(body.tarea).select("tarea").lean()
+    : null;
+  if (!tarea || !esHorasLaMartina(tarea.tarea)) return "Colch. Hs. va solo con la tarea Horas La Martina.";
+  return null;
+};
+
 // "AAAA-MM-DD" de una fecha guardada o de la que llega en el cuerpo.
 const diaDe = (fecha) =>
   fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha || "").slice(0, 10);
@@ -618,6 +636,11 @@ export const create = async (req, res) => {
         ? rechazoDelProvisorio(req.body, ok)
         : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+    // Colch. Hs.: solo Horas La Martina y con observaciones, y solo en Berdina
+    // (08/11/2026). Uso interno no lleva.
+    if (usoInterno || clave(req.body.establecimiento) === "san-pablo") req.body.colchonHs = false;
+    const sinColchon = await rechazoDelColchon(req.body);
+    if (sinColchon) return res.status(400).json({ error: sinColchon });
     // El cliente tiene que estar en el padrón; se guarda escrito como allá.
     // Uso interno no lleva.
     if (usoInterno) req.body.cliente = "";
@@ -689,6 +712,11 @@ export const update = async (req, res) => {
         ? rechazoDelProvisorio(req.body, ok)
         : await rechazoDelParte(req.body, { tareaDelPadron, ok });
     if (rechazo) return res.status(rechazo.status).json(rechazo.cuerpo);
+    // Colch. Hs.: solo Horas La Martina y con observaciones, y solo en Berdina
+    // (08/11/2026). Uso interno no lleva.
+    if (usoInterno || clave(req.body.establecimiento) === "san-pablo") req.body.colchonHs = false;
+    const sinColchon = await rechazoDelColchon(req.body);
+    if (sinColchon) return res.status(400).json({ error: sinColchon });
     if (usoInterno) req.body.cliente = "";
     else {
       if (!cliente) return res.status(400).json({ error: NO_ES_DEL_PADRON });
