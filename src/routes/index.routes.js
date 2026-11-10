@@ -169,7 +169,7 @@ router.use("/personal", escribirSi(["altas.personal"]), personalRouter);
 router.use("/tareas", escribirSi(["altas.tareas"]), tareasRouter);
 // La guía de tareas (04/11/2026): el "?" de Tarea en la planilla de carga.
 // Agregar un trabajo pide lo mismo que dar de alta una tarea.
-router.use("/guia-tareas", escribirSi(["altas.tareas"]), guiaTareasRouter);
+router.use("/guia-tareas", escribirSi(["altas.tareas", "produccion.guiaTareas"]), guiaTareasRouter);
 router.use("/clientes", escribirSi(["altas.clientes"]), clientesRouter);
 router.use("/partes", escribirSi(["produccion.certificacion"]), partesRouter);
 router.use("/periodos", escribirSi(["produccion.certificacion"]), periodosRouter);

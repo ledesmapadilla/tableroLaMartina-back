@@ -54,6 +54,8 @@ export const PERMISOS_HOY = {
   "produccion.admisibles": SIN_SOLICITANTE,
   "produccion.certificacion": SIN_SOLICITANTE,
   "produccion.informeMes": SIN_SOLICITANTE,
+  // La guía de tareas (10/11/2026): nace también con el Encargado de taller.
+  "produccion.guiaTareas": TODOS,
   "produccion.contable": CONTABLE,
 
   // Contable (05/11/2026): la tarjeta de la principal y el Excel mensual.
