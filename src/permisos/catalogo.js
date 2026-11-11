@@ -61,6 +61,8 @@ export const PERMISOS_HOY = {
   // Contable (05/11/2026): la tarjeta de la principal y el Excel mensual.
   "contable.excel": CONTABLE,
   "contable.equivalencias": CONTABLE,
+  // La página Costos de la Comparativa costos tarea (11/11/2026): solo lectura.
+  "contable.costos": CONTABLE,
 
   // Altas
   "altas.centrosCosto": SIN_SOLICITANTE,
