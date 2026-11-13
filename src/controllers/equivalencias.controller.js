@@ -12,7 +12,10 @@ import { claveTarea as clave } from "../catalogos/claveTarea.js";
 import { MODOS_VIGENCIA, conUnion, estadoEn, mesClave, vistaDelMes } from "../catalogos/vigenciaEquivalencia.js";
 
 /** "mes" o "futuros" (lo que no sea "mes" es "futuros", como era antes). */
-const modoValido = (m) => (m === "mes" ? "mes" : "futuros");
+// Desde el 13/11/2026 no hay más "solo este mes": todo lo que se agrega o
+// cambia vale desde el mes mirado en adelante (los anteriores no se tocan).
+// Las uniones "solo mes" que ya estaban guardadas quedan como estaban.
+const modoValido = () => "futuros";
 
 const limpiar = (t) => String(t || "").trim().replace(/\s+/g, " ");
 
