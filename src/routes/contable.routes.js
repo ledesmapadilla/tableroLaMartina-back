@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getFilas, putFilas, deleteFilas, getEstado } from "../controllers/contable.controller.js";
+import { getFilas, putFilas, deleteFilas, getEstado, getTarifasCargadas } from "../controllers/contable.controller.js";
 import {
   getEquivalencias,
   putEquivalencia,
@@ -17,7 +17,8 @@ import {
 import { gasoil, dolar, alquiler } from "../controllers/preciosContable.controller.js";
 import { getAlquileres, postAlquiler, putAlquiler, deleteAlquiler, putCitrusvilAlquiler } from "../controllers/alquileres.controller.js";
 import { getObservaciones, postObservacion, deleteNota } from "../controllers/observacionesComparativa.controller.js";
-import { escribirSi } from "../middleware/permisos.js";
+import { getAnio, getMes, getSemana, putFijo, postMovimiento, putMovimiento, deleteMovimiento } from "../controllers/caja.controller.js";
+import { escribirSi, exigirVer } from "../middleware/permisos.js";
 
 const router = Router();
 
@@ -31,6 +32,8 @@ const EQUIVALENCIAS = escribirSi(["contable.equivalencias"]);
 // Si el mes tiene tabla, sin traer las filas.
 router.get("/estado/:anio/:mes", getEstado);
 router.get("/filas/:anio/:mes", getFilas);
+// Las tarifas de Ctv cargadas a mano, de los meses sin Excel mensual (13/11/2026).
+router.get("/tarifas-cargadas/:anio", getTarifasCargadas);
 router.put("/filas/:anio/:mes", EXCEL, putFilas);
 router.delete("/filas/:anio/:mes", EXCEL, deleteFilas);
 
@@ -86,5 +89,18 @@ for (const [ruta, c] of [
   router.put(`${ruta}/:id`, EQUIVALENCIAS, c.update);
   router.delete(`${ruta}/:id`, EQUIVALENCIAS, c.remove);
 }
+
+// Caja (13/11/2026): el control de caja por semana, de viernes a jueves.
+// Bien restringida: hasta para leer pide "Ver" de contable.caja.
+const CAJA_VER = exigirVer(["contable.caja"]);
+const CAJA = escribirSi(["contable.caja"]);
+router.get("/caja/mes/:anio/:mes", CAJA_VER, getMes);
+router.get("/caja/anio/:anio", CAJA_VER, getAnio);
+router.get("/caja/semana/:inicio", CAJA_VER, getSemana);
+router.put("/caja/semana/:inicio/fijo", CAJA_VER, CAJA, putFijo);
+// :lista es entradas o gastos.
+router.post("/caja/semana/:inicio/:lista", CAJA_VER, CAJA, postMovimiento);
+router.put("/caja/semana/:inicio/:lista/:id", CAJA_VER, CAJA, putMovimiento);
+router.delete("/caja/semana/:inicio/:lista/:id", CAJA_VER, CAJA, deleteMovimiento);
 
 export default router;

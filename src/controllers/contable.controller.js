@@ -1,5 +1,6 @@
 import FilaContable, { CAMPOS_FILA } from "../models/FilaContable.js";
 import TablaContable from "../models/TablaContable.js";
+import TarifaCtvCargada from "../models/TarifaCtvCargada.js";
 import { conBerdina } from "../catalogos/nombreBerdina.js";
 import { claveTarea } from "../catalogos/claveTarea.js";
 import { nombresCitrusvil } from "./equivalencias.controller.js";
@@ -142,3 +143,21 @@ export const deleteFilas = async (req, res) => {
   }
 };
 
+
+/**
+ * GET /api/contable/tarifas-cargadas/:anio
+ * Las tarifas de Ctv cargadas a mano de ese año (13/11/2026: enero a
+ * septiembre de 2026, del Excel "tarifas ctv 2026.xlsx"): [{ mes, tarea,
+ * clave, precio }]. La Evolución de tarifas las usa en los meses que las
+ * tienen; el resto sale del Excel mensual.
+ */
+export const getTarifasCargadas = async (req, res) => {
+  const anio = Number(req.params.anio);
+  if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) return res.status(400).json({ error: "Año inválido." });
+  try {
+    const lista = await TarifaCtvCargada.find({ anio }).select("mes tarea clave precio -_id").sort({ mes: 1, tarea: 1 }).lean();
+    res.json(lista);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

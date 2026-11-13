@@ -15,7 +15,9 @@ const router = Router();
  */
 // La misma lista que el adjunto del pedido entero (controllers/archivoPedido.js).
 
-router.get("/firma", exigirEditar(PUEDEN_ADJUNTAR), firmaDeSubida);
-router.delete("/:tipo/:publicId", escribirSi(PUEDEN_ADJUNTAR), borrar);
+// Caja (13/11/2026) también sube fotos y archivos de los gastos.
+const ADJUNTAN = [...PUEDEN_ADJUNTAR, "contable.caja"];
+router.get("/firma", exigirEditar(ADJUNTAN), firmaDeSubida);
+router.delete("/:tipo/:publicId", escribirSi(ADJUNTAN), borrar);
 
 export default router;

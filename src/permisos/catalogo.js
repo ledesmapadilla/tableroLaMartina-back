@@ -63,6 +63,8 @@ export const PERMISOS_HOY = {
   "contable.equivalencias": CONTABLE,
   // La página Costos de la Comparativa costos tarea (11/11/2026): solo lectura.
   "contable.costos": CONTABLE,
+  // Caja (13/11/2026): acceso bien restringido, nace solo con el superadmin.
+  "contable.caja": ["superadmin"],
 
   // Altas
   "altas.centrosCosto": SIN_SOLICITANTE,
