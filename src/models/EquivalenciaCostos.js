@@ -16,10 +16,16 @@ const equivalenciaCostosSchema = new mongoose.Schema(
   {
     nombre: { type: String, required: true, trim: true },
     tareas: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tarea" }],
+    // Y/o alquileres (12/11/2026): en costos se suman a las tareas, con su
+    // monto del mes. `alquiler` (uno solo) es como se guardó el primer día;
+    // se lee junto con la lista.
+    alquileres: [{ type: mongoose.Schema.Types.ObjectId, ref: "Alquiler" }],
+    alquiler: { type: mongoose.Schema.Types.ObjectId, ref: "Alquiler", default: null },
   },
   { timestamps: true }
 );
 
 equivalenciaCostosSchema.index({ nombre: 1 }, { unique: true });
+equivalenciaCostosSchema.index({ alquileres: 1 });
 
 export default mongoose.model("EquivalenciaCostos", equivalenciaCostosSchema, "equivalenciascostos");

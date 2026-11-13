@@ -11,7 +11,17 @@ import mongoose from "mongoose";
 const equivalenciaTareaSchema = new mongoose.Schema(
   {
     tarea: { type: mongoose.Schema.Types.ObjectId, ref: "Tarea", required: true },
+    // Todas las de Citrusvil unidas en algún mes.
     citrusvil: [{ type: String, trim: true }],
+    // En qué meses vale cada unión (12/11/2026, catalogos/vigenciaEquivalencia.js).
+    // Una de `citrusvil` que no está acá vale siempre (las de antes).
+    vigencias: [
+      {
+        _id: false,
+        citrusvil: { type: String, trim: true, required: true },
+        rangos: [{ _id: false, desde: { type: Number, default: null }, hasta: { type: Number, default: null } }],
+      },
+    ],
     observaciones: { type: String, trim: true },
   },
   { timestamps: true }

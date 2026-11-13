@@ -3,6 +3,8 @@ import TablaContable from "../models/TablaContable.js";
 import { conBerdina } from "../catalogos/nombreBerdina.js";
 import { claveTarea } from "../catalogos/claveTarea.js";
 import { nombresCitrusvil } from "./equivalencias.controller.js";
+import EquivalenciaUnidad from "../models/EquivalenciaUnidad.js";
+import { unidadLaMartina } from "../catalogos/unidadesTarea.js";
 
 const MAX_FILAS = 5000;
 const NUMEROS = new Set(["cantidad", "precioUnitario", "subtotal"]);
@@ -67,10 +69,16 @@ export const getFilas = async (req, res) => {
     // Solo lo que muestra la tabla: sin anio, mes, orden ni fechas de alta,
     // que repetidos en cada fila eran un tercio de lo que viajaba (05/11/2026).
     const campos = ["_id", ...CAMPOS_FILA].join(" ");
-    const [filas, tabla] = await Promise.all([
+    const [filas, tabla, extras] = await Promise.all([
       FilaContable.find(periodo).select(campos).sort({ orden: 1 }).lean(),
       TablaContable.findOne(periodo).select("origen cargadaPor fecha").lean(),
+      EquivalenciaUnidad.find({}).select("forma unidad").lean(),
     ]);
+    // Cada fila también con su unidad en la nomenclatura de La Martina
+    // (12/11/2026: HRA → Horas), así Evolución tarifas y el Acumulado no
+    // tienen que pedir las equivalencias completas, que tardan.
+    const mapa = new Map(extras.map((e) => [e.forma, e.unidad]));
+    for (const fila of filas) fila.unidadLM = unidadLaMartina(fila.unidad, mapa);
     res.json({ filas, tabla: tabla || null });
   } catch (error) {
     res.status(500).json({ error: error.message });
