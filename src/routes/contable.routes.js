@@ -17,7 +17,7 @@ import {
 import { gasoil, dolar, alquiler } from "../controllers/preciosContable.controller.js";
 import { getAlquileres, postAlquiler, putAlquiler, deleteAlquiler, putCitrusvilAlquiler } from "../controllers/alquileres.controller.js";
 import { getObservaciones, postObservacion, deleteNota } from "../controllers/observacionesComparativa.controller.js";
-import { getAnio, getMes, getSemana, putFijo, postMovimiento, putMovimiento, deleteMovimiento } from "../controllers/caja.controller.js";
+import { getMovimientos, postMovimiento, putMovimiento, deleteMovimiento } from "../controllers/caja.controller.js";
 import { escribirSi, exigirVer } from "../middleware/permisos.js";
 
 const router = Router();
@@ -90,17 +90,15 @@ for (const [ruta, c] of [
   router.delete(`${ruta}/:id`, EQUIVALENCIAS, c.remove);
 }
 
-// Caja (13/11/2026): el control de caja por semana, de viernes a jueves.
-// Bien restringida: hasta para leer pide "Ver" de contable.caja.
-const CAJA_VER = exigirVer(["contable.caja"]);
-const CAJA = escribirSi(["contable.caja"]);
-router.get("/caja/mes/:anio/:mes", CAJA_VER, getMes);
-router.get("/caja/anio/:anio", CAJA_VER, getAnio);
-router.get("/caja/semana/:inicio", CAJA_VER, getSemana);
-router.put("/caja/semana/:inicio/fijo", CAJA_VER, CAJA, putFijo);
-// :lista es entradas o gastos.
-router.post("/caja/semana/:inicio/:lista", CAJA_VER, CAJA, postMovimiento);
-router.put("/caja/semana/:inicio/:lista/:id", CAJA_VER, CAJA, putMovimiento);
-router.delete("/caja/semana/:inicio/:lista/:id", CAJA_VER, CAJA, deleteMovimiento);
+// Caja (13/11/2026): los ingresos y gastos de la caja, en una sola tabla.
+// Bien restringida: hasta para leer pide "Ver" de contable.caja, o de
+// compras.caja, que es la misma caja en las pantallas del celular (13/11/2026).
+const CLAVES_CAJA = ["contable.caja", "compras.caja"];
+const CAJA_VER = exigirVer(CLAVES_CAJA);
+const CAJA = escribirSi(CLAVES_CAJA);
+router.get("/caja", CAJA_VER, getMovimientos);
+router.post("/caja", CAJA_VER, CAJA, postMovimiento);
+router.put("/caja/:id", CAJA_VER, CAJA, putMovimiento);
+router.delete("/caja/:id", CAJA_VER, CAJA, deleteMovimiento);
 
 export default router;

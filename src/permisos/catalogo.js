@@ -25,6 +25,10 @@ export const PERMISOS_HOY = {
   "compras.comprador": SIN_SOLICITANTE,
   "compras.gerencia": GERENCIA,
   "compras.gasoil": ["superadmin"],
+  // Caja desde el celular (13/11/2026): la carga de la caja de Contable en
+  // pantallas de teléfono. Nace solo con el superadmin; se le tilda al rol
+  // celular (javiercel).
+  "compras.caja": ["superadmin"],
   "compras.stock": SIN_SOLICITANTE,
 
   // Mantenimiento

@@ -1,218 +1,103 @@
 import mongoose from "mongoose";
-import CajaSemana from "../models/CajaSemana.js";
-import { cuentaDeSemana, esInicio, fechaValida, finDeSemana, inicioDe, semanasDelMes, semanasDelAnio } from "../catalogos/caja.js";
+import CajaMovimiento, { CONCEPTOS_CAJA } from "../models/CajaMovimiento.js";
 
 /**
- * Contable › Caja (13/11/2026): el control de caja por semana (viernes a
- * jueves). Todo pide el permiso contable.caja: leer, "Ver"; escribir,
- * "Editar" (contable.routes.js).
+ * Contable › Caja (13/11/2026, segunda versión): los movimientos de la caja,
+ * ingresos y gastos, en una sola tabla. Todo pide el permiso contable.caja:
+ * leer, "Ver"; escribir, "Editar" (contable.routes.js).
  */
 
-const LISTAS = { entradas: "entradas", gastos: "gastos" };
 const MAX_ARCHIVOS = 10;
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
-const errorDeValidacion = (error) =>
-  error?.name === "ValidationError" || error?.name === "CastError"
-    ? Object.values(error.errors || {})[0]?.message || "Datos inválidos."
-    : null;
+const fechaValida = (s) => {
+  if (!FECHA.test(String(s || ""))) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+};
 
 const responderError = (res, error) => {
-  const mensaje = errorDeValidacion(error);
-  if (mensaje) return res.status(400).json({ error: mensaje });
+  if (error?.name === "ValidationError" || error?.name === "CastError") {
+    return res.status(400).json({ error: Object.values(error.errors || {})[0]?.message || "Datos inválidos." });
+  }
   return res.status(500).json({ error: error.message });
 };
 
-/** El viernes de la URL (inicio de la semana), o la respuesta 400 si no lo es. */
-const inicioDeLaRuta = (req, res) => {
-  const { inicio } = req.params;
-  if (!esInicio(inicio)) {
-    res.status(400).json({ error: "La semana tiene que empezar un viernes (AAAA-MM-DD)." });
-    return null;
+/** Lo que manda la pantalla, revisado: { datos } o { error }. */
+const datosDe = (body) => {
+  const fecha = String(body?.fecha || "");
+  if (!fechaValida(fecha)) return { error: "Falta la fecha." };
+  const concepto = String(body?.concepto || "");
+  if (!CONCEPTOS_CAJA.includes(concepto)) return { error: "El concepto es ingreso o gasto." };
+  const monto = Math.round(Number(String(body?.monto ?? "").replace(",", ".")) * 100) / 100;
+  if (!Number.isFinite(monto) || monto <= 0) return { error: "El monto tiene que ser mayor que cero." };
+  const archivos = Array.isArray(body?.archivos) ? body.archivos : [];
+  if (archivos.length > MAX_ARCHIVOS) return { error: `Hasta ${MAX_ARCHIVOS} adjuntos por movimiento.` };
+  if (archivos.some((a) => !a || typeof a.url !== "string" || !/^https:\/\//.test(a.url))) {
+    return { error: "Algún adjunto no es válido." };
   }
-  return inicio;
-};
-
-/** La semana con su cuenta, como la lee la pantalla. */
-const semanaCompleta = async (inicio) => {
-  const docs = await CajaSemana.find({ semana: { $lte: inicio } }).lean();
-  const actual = docs.find((d) => d.semana === inicio);
-  const ordenar = (l) => [...(l || [])].sort((a, b) => a.fecha.localeCompare(b.fecha) || String(a._id).localeCompare(String(b._id)));
   return {
-    semana: inicio,
-    hasta: finDeSemana(inicio),
-    ...cuentaDeSemana(docs, inicio),
-    lista: { entradas: ordenar(actual?.entradas), gastos: ordenar(actual?.gastos) },
+    datos: {
+      fecha,
+      concepto,
+      monto,
+      descripcion: String(body?.descripcion || "").trim().slice(0, 300),
+      observaciones: String(body?.observaciones || "").trim().slice(0, 1000),
+      archivos: archivos.map((a) => ({
+        url: a.url,
+        nombre: String(a.nombre || "").slice(0, 200),
+        publicId: String(a.publicId || ""),
+        tipo: a.tipo === "raw" ? "raw" : "image",
+      })),
+    },
   };
 };
 
-/** GET /api/contable/caja/semana/:inicio */
-export const getSemana = async (req, res) => {
-  const inicio = inicioDeLaRuta(req, res);
-  if (!inicio) return;
+/** GET /api/contable/caja: todos los movimientos, los más nuevos primero. */
+export const getMovimientos = async (req, res) => {
   try {
-    res.json(await semanaCompleta(inicio));
+    res.json(await CajaMovimiento.find().sort({ fecha: -1, createdAt: -1 }).lean());
   } catch (error) {
     responderError(res, error);
   }
 };
 
-/**
- * GET /api/contable/caja/mes/:anio/:mes  (mes de 1 a 12)
- * Una fila por semana cuyo viernes cae en ese mes, con su cuenta y cuántos
- * movimientos tiene: las tarjetas de la página del mes.
- */
-export const getMes = async (req, res) => {
-  const anio = Number(req.params.anio);
-  const mes = Number(req.params.mes);
-  if (!Number.isInteger(anio) || !Number.isInteger(mes) || mes < 1 || mes > 12) {
-    return res.status(400).json({ error: "Mes inválido." });
-  }
-  const semanas = semanasDelMes(anio, mes);
-  if (!semanas.length) return res.json([]);
-  try {
-    const docs = await CajaSemana.find({ semana: { $lte: semanas[semanas.length - 1] } }).lean();
-    const porSemana = new Map(docs.map((d) => [d.semana, d]));
-    res.json(
-      semanas.map((j) => ({
-        semana: j,
-        hasta: finDeSemana(j),
-        ...cuentaDeSemana(docs, j),
-        movimientos: (porSemana.get(j)?.entradas?.length || 0) + (porSemana.get(j)?.gastos?.length || 0),
-      }))
-    );
-  } catch (error) {
-    responderError(res, error);
-  }
-};
-
-/**
- * GET /api/contable/caja/anio/:anio
- * El acumulado del año (13/11/2026): todas las semanas cuyo viernes cae en
- * ese año, con su cuenta. La pantalla las agrupa por mes.
- */
-export const getAnio = async (req, res) => {
-  const anio = Number(req.params.anio);
-  if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) return res.status(400).json({ error: "Año inválido." });
-  const semanas = semanasDelAnio(anio);
-  try {
-    const docs = await CajaSemana.find({ semana: { $lte: semanas[semanas.length - 1] } }).lean();
-    res.json(semanas.map((s) => ({ semana: s, hasta: finDeSemana(s), ...cuentaDeSemana(docs, s) })));
-  } catch (error) {
-    responderError(res, error);
-  }
-};
-
-/**
- * PUT /api/contable/caja/semana/:inicio/fijo  { fijo }
- * El ingreso fijo desde esta semana en adelante. null lo vuelve al de la
- * semana anterior.
- */
-export const putFijo = async (req, res) => {
-  const inicio = inicioDeLaRuta(req, res);
-  if (!inicio) return;
-  const crudo = req.body?.fijo;
-  const fijo = crudo === null || crudo === "" ? null : Number(crudo);
-  if (fijo !== null && (!Number.isFinite(fijo) || fijo < 0)) {
-    return res.status(400).json({ error: "El ingreso fijo tiene que ser un número mayor o igual a cero." });
-  }
-  try {
-    await CajaSemana.updateOne({ semana: inicio }, { $set: { fijo } }, { upsert: true, runValidators: true });
-    res.json(await semanaCompleta(inicio));
-  } catch (error) {
-    responderError(res, error);
-  }
-};
-
-/** Lo que manda la pantalla para una entrada o un gasto, revisado. */
-const datosDe = (body, lista, inicio) => {
-  const fecha = String(body?.fecha || "");
-  if (!fechaValida(fecha)) return { error: "Falta la fecha." };
-  if (inicioDe(fecha) !== inicio) {
-    return { error: `La fecha tiene que estar dentro de la semana (viernes ${inicio} a jueves ${finDeSemana(inicio)}).` };
-  }
-  const monto = Math.round(Number(String(body?.monto ?? "").replace(",", ".")) * 100) / 100;
-  if (!Number.isFinite(monto) || monto <= 0) return { error: "El monto tiene que ser mayor que cero." };
-  const datos = { fecha, monto, descripcion: String(body?.descripcion || "").trim().slice(0, 300) };
-  if (lista === "gastos") {
-    const archivos = Array.isArray(body?.archivos) ? body.archivos : [];
-    if (archivos.length > MAX_ARCHIVOS) return { error: `Hasta ${MAX_ARCHIVOS} archivos por gasto.` };
-    if (archivos.some((a) => !a || typeof a.url !== "string" || !/^https:\/\//.test(a.url))) {
-      return { error: "Algún archivo no es válido." };
-    }
-    datos.archivos = archivos.map((a) => ({
-      url: a.url,
-      nombre: String(a.nombre || "").slice(0, 200),
-      publicId: String(a.publicId || ""),
-      tipo: a.tipo === "raw" ? "raw" : "image",
-    }));
-  }
-  return { datos };
-};
-
-const listaDeLaRuta = (req, res) => {
-  const lista = LISTAS[req.params.lista];
-  if (!lista) res.status(404).json({ error: "No existe." });
-  return lista;
-};
-
-/** POST /api/contable/caja/semana/:inicio/:lista  (entradas | gastos) */
+/** POST /api/contable/caja */
 export const postMovimiento = async (req, res) => {
-  const inicio = inicioDeLaRuta(req, res);
-  if (!inicio) return;
-  const lista = listaDeLaRuta(req, res);
-  if (!lista) return;
-  const { datos, error } = datosDe(req.body, lista, inicio);
+  const { datos, error } = datosDe(req.body);
   if (error) return res.status(400).json({ error });
   try {
-    const nuevo = { ...datos, cargadoPor: req.usuario?.usuario || "" };
-    await CajaSemana.updateOne({ semana: inicio }, { $push: { [lista]: nuevo } }, { upsert: true, runValidators: true });
-    res.status(201).json(await semanaCompleta(inicio));
+    const nuevo = await CajaMovimiento.create({ ...datos, cargadoPor: req.usuario?.usuario || "" });
+    res.status(201).json(nuevo);
   } catch (err) {
     responderError(res, err);
   }
 };
 
-/** PUT /api/contable/caja/semana/:inicio/:lista/:id */
+/** PUT /api/contable/caja/:id */
 export const putMovimiento = async (req, res) => {
-  const inicio = inicioDeLaRuta(req, res);
-  if (!inicio) return;
-  const lista = listaDeLaRuta(req, res);
-  if (!lista) return;
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: "Id inválido." });
-  const { datos, error } = datosDe(req.body, lista, inicio);
+  const { datos, error } = datosDe(req.body);
   if (error) return res.status(400).json({ error });
   try {
-    const set = Object.fromEntries(Object.entries(datos).map(([k, v]) => [`${lista}.$.${k}`, v]));
-    set[`${lista}.$.updatedAt`] = new Date();
-    const r = await CajaSemana.updateOne(
-      { semana: inicio, [`${lista}._id`]: req.params.id },
-      { $set: set },
-      { runValidators: true }
-    );
-    if (!r.matchedCount) return res.status(404).json({ error: "Ya no existe: puede que lo haya borrado otro." });
-    res.json(await semanaCompleta(inicio));
+    const mov = await CajaMovimiento.findByIdAndUpdate(req.params.id, { $set: datos }, { returnDocument: "after", runValidators: true });
+    if (!mov) return res.status(404).json({ error: "Ya no existe: puede que lo haya borrado otro." });
+    res.json(mov);
   } catch (err) {
     responderError(res, err);
   }
 };
 
 /**
- * DELETE /api/contable/caja/semana/:inicio/:lista/:id
- * Los archivos de Cloudinary los borra la pantalla (services/archivos.js).
+ * DELETE /api/contable/caja/:id
+ * Los adjuntos de Cloudinary los borra la pantalla (services/archivos.js).
  */
 export const deleteMovimiento = async (req, res) => {
-  const inicio = inicioDeLaRuta(req, res);
-  if (!inicio) return;
-  const lista = listaDeLaRuta(req, res);
-  if (!lista) return;
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: "Id inválido." });
   try {
-    const r = await CajaSemana.updateOne(
-      { semana: inicio, [`${lista}._id`]: req.params.id },
-      { $pull: { [lista]: { _id: req.params.id } } }
-    );
-    if (!r.matchedCount) return res.status(404).json({ error: "Ya no existe: puede que lo haya borrado otro." });
-    res.json(await semanaCompleta(inicio));
+    const mov = await CajaMovimiento.findByIdAndDelete(req.params.id);
+    if (!mov) return res.status(404).json({ error: "Ya no existe: puede que lo haya borrado otro." });
+    res.json({ ok: true });
   } catch (err) {
     responderError(res, err);
   }
