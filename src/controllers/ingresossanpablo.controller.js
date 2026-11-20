@@ -111,6 +111,10 @@ const ENCARGADOS_ESCALERAS = [
   "Daniel Perea",
   "Carlos Chumiento",
   "Nicolás Galvan",
+  "Tomas Marques",
+  "Tomás Marques",
+  "Tomas Marquez",
+  "Tomás Márquez",
 ];
 const avisoEncargado = { error: "Elegí el encargado" };
 const encargadoInvalido = (encargado) => !ENCARGADOS_ESCALERAS.includes(encargado);
