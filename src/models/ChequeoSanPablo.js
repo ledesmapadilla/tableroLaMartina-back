@@ -41,11 +41,12 @@ const ProblemaSchema = new Schema(
   { _id: true }
 );
 
-// Una reparación de una fila de una Manitou (11/10/2026): el problema, el
-// detalle de lo que se hizo y si ya se realizó.
+// Una reparación de una fila de una Manitou (11/10/2026): el trabajo a
+// realizar (`detalle`) y si ya se realizó. El problema se sacó el
+// 20/11/2026: queda vacío, solo en las cargadas antes hasta que se guardan.
 const ReparacionSchema = new Schema(
   {
-    problema: { type: String, trim: true, required: true },
+    problema: { type: String, trim: true, default: "" },
     detalle: { type: String, trim: true, default: "" },
     realizado: { type: Boolean, default: false },
     // Los detalles de cómo se hizo (18/10/2026): texto libre, del + al lado

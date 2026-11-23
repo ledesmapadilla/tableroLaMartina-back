@@ -286,18 +286,20 @@ export const updateChequeo = async (req, res) => {
       return res.status(400).json({ error: "Esta tarea no aplica a esta unidad" });
     }
     if ("descripcion" in body) fila.descripcion = limpiar(body.descripcion);
-    // Las reparaciones van como lista entera, sin las que no tienen problema.
+    // Las reparaciones van como lista entera, sin las que no tienen trabajo a
+    // realizar. El problema se sacó (20/11/2026) y se borra al guardar; la que
+    // tenía solo problema lo pasa al trabajo para no perderse.
     if ("reparaciones" in body) {
       if (!Array.isArray(body.reparaciones)) return res.status(400).json({ error: "Reparaciones inválidas" });
       fila.reparaciones = body.reparaciones
         .map((r) => ({
           ...(r._id ? { _id: r._id } : {}),
-          problema: limpiar(r.problema),
-          detalle: limpiar(r.detalle),
+          problema: "",
+          detalle: limpiar(r.detalle) || limpiar(r.problema),
           realizado: Boolean(r.realizado),
           notas: limpiar(r.notas),
         }))
-        .filter((r) => r.problema);
+        .filter((r) => r.detalle);
     }
     if ("item" in body) {
       const item = limpiar(body.item);
