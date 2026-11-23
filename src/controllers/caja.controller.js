@@ -31,6 +31,8 @@ const datosDe = (body) => {
   if (!CONCEPTOS_CAJA.includes(concepto)) return { error: "El concepto es ingreso o gasto." };
   const monto = Math.round(Number(String(body?.monto ?? "").replace(",", ".")) * 100) / 100;
   if (!Number.isFinite(monto) || monto <= 0) return { error: "El monto tiene que ser mayor que cero." };
+  const descripcion = String(body?.descripcion || "").trim().slice(0, 300);
+  if (!descripcion) return { error: "Falta la descripción." };
   const archivos = Array.isArray(body?.archivos) ? body.archivos : [];
   if (archivos.length > MAX_ARCHIVOS) return { error: `Hasta ${MAX_ARCHIVOS} adjuntos por movimiento.` };
   if (archivos.some((a) => !a || typeof a.url !== "string" || !/^https:\/\//.test(a.url))) {
@@ -41,7 +43,7 @@ const datosDe = (body) => {
       fecha,
       concepto,
       monto,
-      descripcion: String(body?.descripcion || "").trim().slice(0, 300),
+      descripcion,
       observaciones: String(body?.observaciones || "").trim().slice(0, 1000),
       archivos: archivos.map((a) => ({
         url: a.url,
