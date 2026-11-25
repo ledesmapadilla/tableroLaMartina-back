@@ -213,7 +213,8 @@ export const lecturasDeTractor = async (tractorId, tractorPrecargado = null) => 
   };
 
   const [services, trabajos, manuales, centros, deVisitas] = await Promise.all([
-    ServiceTractor.find({ tractor: tractorId }).select("fecha horometro").lean(),
+    // Los asentados solo para el control de services no son lecturas.
+    ServiceTractor.find({ tractor: tractorId, soloControl: { $ne: true } }).select("fecha horometro").lean(),
     TrabajoTractor.find({ tractor: tractorId, horometro: { $nin: ["", null] } })
       .select("fecha horometro")
       .lean(),

@@ -9,6 +9,11 @@ const ServiceTractorSchema = new Schema(
     horometro:     { type: Number, required: true },
     intervalo:     { type: Number, default: 250 },
     observaciones: { type: String, trim: true, default: "" },
+    // Asentado solo para el control de services (24/11/2026): el horómetro es
+    // menor al actual y el usuario eligió guardarlo igual. Cuenta para calcular
+    // el próximo service, pero no es una lectura del horómetro: no entra en la
+    // regla ni en el horómetro actual del tractor (horometros.service.js).
+    soloControl:   { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -270,7 +270,8 @@ export const calcularUltimosHorometros = async ({ incluirManuales = true } = {})
       }
     });
 
-    const services = await ServiceTractor.find().sort({ fecha: -1, createdAt: -1 });
+    // Los asentados solo para el control de services no son el horómetro actual.
+    const services = await ServiceTractor.find({ soloControl: { $ne: true } }).sort({ fecha: -1, createdAt: -1 });
     services.forEach((s) => {
       if (s.cc && typeof s.horometro === "number") {
         const fechaStr = s.fecha ? (typeof s.fecha === "string" ? s.fecha.split("T")[0] : s.fecha.toISOString().split("T")[0]) : "";
@@ -344,19 +345,25 @@ export const create = async (req, res) => {
   try {
     const tractorDoc = await Tractor.findById(req.body.tractor);
 
-    // Regla del horómetro: la pantalla resuelve el conflicto y reintenta.
-    const chequeo = await validarLectura({
-      tractor: req.body.tractor,
-      fecha: req.body.fecha,
-      horometro: req.body.horometro,
-    });
-    if (!chequeo.ok) return res.status(409).json(chequeo);
+    // Regla del horómetro: la pantalla resuelve el conflicto y reintenta. Si
+    // el usuario eligió asentarlo solo para el control de services, no se
+    // valida: no es una lectura (24/11/2026).
+    const soloControl = req.body.soloControl === true;
+    if (!soloControl) {
+      const chequeo = await validarLectura({
+        tractor: req.body.tractor,
+        fecha: req.body.fecha,
+        horometro: req.body.horometro,
+      });
+      if (!chequeo.ok) return res.status(409).json(chequeo);
+    }
 
     const data = {
       ...req.body,
       cc: tractorDoc?.cc || req.body.cc,
       responsable: req.body.responsable || tractorDoc?.supervisor || "",
       horometro: Number(req.body.horometro),
+      soloControl,
       // Sin intervalo elegido va el estándar de la unidad del equipo.
       intervalo: Number(req.body.intervalo) || (tractorDoc?.unidad === "km" ? 10000 : 250),
     };
@@ -372,16 +379,21 @@ export const create = async (req, res) => {
 export const update = async (req, res) => {
   try {
     // Al editar, el propio registro no cuenta como lectura anterior.
-    const previo = await ServiceTractor.findById(req.params.id).select("tractor").lean();
-    const chequeo = await validarLectura({
-      tractor: req.body.tractor || previo?.tractor,
-      fecha: req.body.fecha,
-      horometro: req.body.horometro,
-      ignorarId: req.params.id,
-    });
-    if (!chequeo.ok) return res.status(409).json(chequeo);
+    const previo = await ServiceTractor.findById(req.params.id).select("tractor soloControl").lean();
+    // Uno asentado solo para el control de services sigue así al editarlo,
+    // salvo que la pantalla diga otra cosa.
+    const soloControl = typeof req.body.soloControl === "boolean" ? req.body.soloControl : Boolean(previo?.soloControl);
+    if (!soloControl) {
+      const chequeo = await validarLectura({
+        tractor: req.body.tractor || previo?.tractor,
+        fecha: req.body.fecha,
+        horometro: req.body.horometro,
+        ignorarId: req.params.id,
+      });
+      if (!chequeo.ok) return res.status(409).json(chequeo);
+    }
 
-    const updateData = { ...req.body };
+    const updateData = { ...req.body, soloControl };
     if (updateData.horometro !== undefined) updateData.horometro = Number(updateData.horometro);
     if (updateData.intervalo !== undefined) updateData.intervalo = Number(updateData.intervalo);
     // Si la edicion cambia el tractor hay que reescribir el cc denormalizado,
