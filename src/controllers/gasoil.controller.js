@@ -647,10 +647,13 @@ export const cargarAuditoria = async (req, res) => {
 
 // Borrar un pedido de auditoría (con lo que se haya cargado). Las fotos las
 // borra el front de Cloudinary, como el resto de los adjuntos.
+// Quién borra una auditoría (27/11/2026). Copia de borraAuditorias en
+// TableroFront/src/components/compras/GasoilAuditorias.jsx.
+const BORRAN_AUDITORIA = ["superadmin", "gerente", "comprador"];
 export const borrarAuditoria = async (req, res) => {
   try {
-    if (req.usuario?.rol === "solicitante") {
-      return res.status(403).json({ error: "El encargado de taller no borra auditorías" });
+    if (!BORRAN_AUDITORIA.includes(req.usuario?.rol)) {
+      return res.status(403).json({ error: "La auditoría la borran solo el superadmin, el gerente y el comprador" });
     }
     const auditoria = await AuditoriaGasoil.findByIdAndDelete(req.params.id);
     if (!auditoria) return res.status(404).json({ error: "Auditoría no encontrada" });
