@@ -592,7 +592,8 @@ export const pedirAuditoria = async (req, res) => {
 const filtroCarga = (id, campo, tipo) => ({ _id: id, cargas: { $elemMatch: { campo, tipo: filtroTipo(tipo) } } });
 
 // Cargar (o corregir) los litros y la foto de un tanque (?tipo=, vacío es
-// Común). La primera vez lo hace el encargado de ese taller (el superadmin
+// Común). La primera vez lo hace el encargado de ese taller o el analista
+// (27/11/2026; el superadmin
 // también, para probar); ya cargada, la corrige solo el comprador o Nacho
 // (27/10/2026).
 export const cargarAuditoria = async (req, res) => {
@@ -609,7 +610,7 @@ export const cargarAuditoria = async (req, res) => {
     if (yaCargada && !corrigeStock(req.usuario)) {
       return res.status(403).json({ error: "Los litros ya cargados los corrige solo el comprador" });
     }
-    if (!yaCargada && !["solicitante", "superadmin"].includes(req.usuario?.rol)) {
+    if (!yaCargada && !["solicitante", "analista", "superadmin"].includes(req.usuario?.rol)) {
       return res.status(403).json({ error: "La auditoría la carga el encargado de taller" });
     }
     if (!esSuCampo(req, res, campo)) return;
@@ -668,7 +669,7 @@ export const fotoAuditoria = async (req, res) => {
     if (!campoValido(campo, res)) return;
     const tipo = tipoValido(campo, req.query.tipo, res);
     if (!tipo) return;
-    if (!["solicitante", "superadmin"].includes(req.usuario?.rol)) {
+    if (!["solicitante", "analista", "superadmin"].includes(req.usuario?.rol)) {
       return res.status(403).json({ error: "La auditoría la carga el encargado de taller" });
     }
     if (!esSuCampo(req, res, campo)) return;
